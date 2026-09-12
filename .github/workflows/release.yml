@@ -211,11 +211,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            | jq 'add' >"$RUNNER_TEMP/releases.json"
-          count=$(jq --arg tag "$GITHUB_REF_NAME" \
-            '[.[] | select(.tag_name == $tag)] | length' "$RUNNER_TEMP/releases.json")
-          [[ "$count" == 1 ]]
+          # `gh release create` returns before the release list is consistent, so the draft this
+          # job just made can be absent from the very next `GET /releases`. That is a race the
+          # first release of this repository lost: zero matches, a silent `[[ … == 1 ]]` failure,
+          # and the cleanup step deleting a draft that was fine. Poll for it instead of assuming.
+          count=0
+          for attempt in $(seq 1 20); do
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              | jq 'add' >"$RUNNER_TEMP/releases.json"
+            count=$(jq --arg tag "$GITHUB_REF_NAME" \
+              '[.[] | select(.tag_name == $tag)] | length' "$RUNNER_TEMP/releases.json")
+            if [[ "$count" != 0 ]]; then
+              break
+            fi
+            echo "attempt $attempt: $GITHUB_REF_NAME is not in the release list yet"
+            sleep 3
+          done
+          if [[ "$count" != 1 ]]; then
+            echo "error: expected exactly one release for $GITHUB_REF_NAME, found $count" >&2
+            exit 1
+          fi
           release_id=$(jq -r --arg tag "$GITHUB_REF_NAME" \
             '.[] | select(.tag_name == $tag) | .id' "$RUNNER_TEMP/releases.json")
           draft=$(jq -r --arg tag "$GITHUB_REF_NAME" \
@@ -333,11 +348,22 @@ jobs:
         run: |
           set -euo pipefail
           (cd dist && sha256sum --check --strict openobserve-provider.wasm.sha256)
-          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            | jq 'add' >"$RUNNER_TEMP/releases.json"
-          count=$(jq --arg tag "$GITHUB_REF_NAME" \
-            '[.[] | select(.tag_name == $tag)] | length' "$RUNNER_TEMP/releases.json")
-          [[ "$count" == 1 ]]
+          count=0
+          for attempt in $(seq 1 20); do
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              | jq 'add' >"$RUNNER_TEMP/releases.json"
+            count=$(jq --arg tag "$GITHUB_REF_NAME" \
+              '[.[] | select(.tag_name == $tag)] | length' "$RUNNER_TEMP/releases.json")
+            if [[ "$count" != 0 ]]; then
+              break
+            fi
+            echo "attempt $attempt: $GITHUB_REF_NAME is not in the release list yet"
+            sleep 3
+          done
+          if [[ "$count" != 1 ]]; then
+            echo "error: expected exactly one release for $GITHUB_REF_NAME, found $count" >&2
+            exit 1
+          fi
           release_id=$(jq -r --arg tag "$GITHUB_REF_NAME" \
             '.[] | select(.tag_name == $tag and .draft == true) | .id' \
             "$RUNNER_TEMP/releases.json")
