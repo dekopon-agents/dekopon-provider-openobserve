@@ -1,0 +1,1 @@
+{"took":9,"hits":[{"bucket":"reviewer","calls":128,"succeeded":126,"p50":141.0,"p95":902.0},{"bucket":"librarian","calls":37,"succeeded":37,"p50":88.0,"p95":410.0}],"total":2,"from":0,"size":100,"scan_size":2}

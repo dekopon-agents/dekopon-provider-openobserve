@@ -1,0 +1,1 @@
+{"took":18,"hits":[{"turns":41,"input_tokens":183220,"cached_input_tokens":121004,"output_tokens":22410,"reasoning_output_tokens":0,"total_tokens":205630,"p50":2140137.0,"p95":9800455.0}],"total":1,"from":0,"size":1,"scan_size":9}

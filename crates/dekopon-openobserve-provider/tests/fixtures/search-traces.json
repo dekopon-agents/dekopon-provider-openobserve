@@ -1,0 +1,1 @@
+{"took":4,"hits":[{"trace_id":"0af7651916cd43dd8448eb211c80319c","operation_name":"gateway.session"},{"trace_id":"0af7651916cd43dd8448eb211c80319c","operation_name":"prompt.model_turn"}],"total":1873,"from":0,"size":2,"scan_size":21}
