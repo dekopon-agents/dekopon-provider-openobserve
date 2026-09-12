@@ -1,0 +1,50 @@
+# One repository, two crates, because #250's Backends section decided that shape: a backend-neutral
+# core that owns the command-word grammar, the window cap, the dekopon column projection, the
+# output fitting, and the output serializers; and one component per backend that implements `plan`
+# and `fold` against it. OpenObserve is the first backend. A later `dekopon-provider-quickwit`
+# depends on the core crate rather than forking it.
+#
+# The core crate is not published to crates.io today. Nothing outside this workspace consumes it
+# yet, and a published crate with no consumer is a maintenance claim nobody asked for. When the
+# second backend gets its own repository, that is the change that makes publishing it earn its keep.
+[workspace]
+resolver = "3"
+members = ["crates/dekopon-otel-query-core", "crates/dekopon-openobserve-provider"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dekopon-agents/dekopon-provider-openobserve"
+
+[workspace.dependencies]
+# Exact crates.io pins, never a branch: a `branch =` dependency resolves by fetching the ref, so
+# deleting the branch upstream breaks every cold build, which is exactly how the first out-of-tree
+# provider rotted. 0.13.0 is the first published SDK carrying `dekopon:provider@0.3.0`, whose
+# `provider-cli` world exports `run-command` — the facade that renders `--help` and usage errors in
+# the guest.
+# The wall clock is a host import, not a guest guess: every word resolves an absolute
+# `start_time`/`end_time` in microseconds, and a component has no clock of its own. It is
+# readable during `invoke` only — `describe` and `run-command` are pure by contract and the
+# broker host traps a component that reads it from either.
+dekopon-provider-clock = "=0.13.0"
+dekopon-provider-http = "=0.13.0"
+dekopon-provider-sdk = { version = "=0.13.0", features = ["clap"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = "s"
+panic = "abort"
+strip = "symbols"

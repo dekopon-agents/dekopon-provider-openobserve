@@ -1,0 +1,29 @@
+[package]
+name = "dekopon-openobserve-provider"
+description = "Bounded read of an OpenObserve telemetry store for Dekopon, as a Wasm component"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dekopon-otel-query-core = { path = "../dekopon-otel-query-core" }
+dekopon-provider-clock.workspace = true
+dekopon-provider-http.workspace = true
+dekopon-provider-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# 0.62.0, matching dekopon 0.13.0's own workspace pin: it is the version the SDK and the HTTP
+# binding generate their own bindings with, and two wit-bindgen runtimes in one component define
+# `cabi_realloc` twice. It moves in lockstep with rust-toolchain.toml and the wasm-tools pin in
+# build.sh and scripts/validate.sh, because wit-bindgen's generated code must agree with the
+# wasm-tools CLI.
+wit-bindgen = { version = "=0.62.0", default-features = false, features = ["macros", "realloc"] }
+
+[lints]
+workspace = true

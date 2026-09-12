@@ -1,0 +1,352 @@
+{
+  "apiVersion": "dekopon.dev/provider/v1alpha1",
+  "id": "openobserve",
+  "description": "Reads an OpenObserve telemetry store over its _search API: one agent's own turns and tokens, the broker's fleet view, and bounded raw search",
+  "capabilities": [
+    {
+      "id": "openobserve.search",
+      "description": "Runs one read-only statement against the store and returns its rows. Returns whatever the statement selects, conversation text included, so it belongs to an operator's own agent",
+      "effect": "read-only",
+      "risk": "Medium",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 100,
+            "description": "Rows to ask the store for.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxOutputBytes": {
+            "default": 65536,
+            "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
+            "maximum": 1048576,
+            "minimum": 1024,
+            "type": "integer"
+          },
+          "org": {
+            "default": "default",
+            "description": "The store's organization path segment.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "signal": {
+            "description": "Which signal to search. Spans are traces; brokerd's audit records are logs.",
+            "enum": [
+              "traces",
+              "logs"
+            ],
+            "type": "string"
+          },
+          "sinceSeconds": {
+            "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
+            "maximum": 2592000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "sql": {
+            "description": "One statement, starting with SELECT or a WITH that ends in one; a second statement is refused. Attribute names are folded to letters, digits, and underscore: audit.event is audit_event, usage.input_tokens is usage_input_tokens, decision.allowed is decision_allowed.",
+            "maxLength": 8192,
+            "minLength": 7,
+            "type": "string"
+          },
+          "stream": {
+            "default": "dekopon",
+            "description": "The stream both dekopon daemons export into. stream-name=dekopon routes traces and logs here; spans are not in the default trace stream.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "url": {
+            "description": "The store's base URL, with no trailing slash: https://rpi.lan/openobserve. A host outside the grant's allowedHosts is a denied egress, never a leak.",
+            "maxLength": 512,
+            "minLength": 8,
+            "pattern": "^https?://",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "sinceSeconds",
+          "signal",
+          "sql"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "id": "openobserve.trace",
+      "description": "Returns one trace's spans as a projected skeleton: ids, operation, service, kind, status, and timings. Never span events, which is where conversation text lives",
+      "effect": "read-only",
+      "risk": "Low",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 100,
+            "description": "Rows to ask the store for.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxOutputBytes": {
+            "default": 65536,
+            "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
+            "maximum": 1048576,
+            "minimum": 1024,
+            "type": "integer"
+          },
+          "org": {
+            "default": "default",
+            "description": "The store's organization path segment.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "sinceSeconds": {
+            "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
+            "maximum": 2592000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "stream": {
+            "default": "dekopon",
+            "description": "The stream both dekopon daemons export into. stream-name=dekopon routes traces and logs here; spans are not in the default trace stream.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "traceId": {
+            "description": "The 32-hexadecimal-character W3C trace id.",
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^[0-9a-fA-F]{32}$",
+            "type": "string"
+          },
+          "url": {
+            "description": "The store's base URL, with no trailing slash: https://rpi.lan/openobserve. A host outside the grant's allowedHosts is a denied egress, never a leak.",
+            "maxLength": 512,
+            "minLength": 8,
+            "pattern": "^https?://",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "sinceSeconds",
+          "traceId"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "id": "openobserve.agent-stats",
+      "description": "One object of an agent's own numbers over the window: sessions, model turns, latency percentiles, token totals by kind, capability calls by id, and denials by reason",
+      "effect": "read-only",
+      "risk": "Low",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "agent": {
+            "description": "Whose numbers. A flag in 0.1.0: Cedar decides on context.agent, which the broker stamps, and it cannot compare provider input against context — so a grant of this capability can name any agent. The dekopon:meta/caller import that would make the scope a fact of the invocation does not exist yet.",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "maxOutputBytes": {
+            "default": 65536,
+            "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
+            "maximum": 1048576,
+            "minimum": 1024,
+            "type": "integer"
+          },
+          "org": {
+            "default": "default",
+            "description": "The store's organization path segment.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "sinceSeconds": {
+            "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
+            "maximum": 2592000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "stream": {
+            "default": "dekopon",
+            "description": "The stream both dekopon daemons export into. stream-name=dekopon routes traces and logs here; spans are not in the default trace stream.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "url": {
+            "description": "The store's base URL, with no trailing slash: https://rpi.lan/openobserve. A host outside the grant's allowedHosts is a denied egress, never a leak.",
+            "maxLength": 512,
+            "minLength": 8,
+            "pattern": "^https?://",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "sinceSeconds",
+          "agent"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "id": "openobserve.broker-providers",
+      "description": "What the broker loaded at its last boot inside the window: provider id, artifact digest prefix, capability and command-word counts, and compile time. Never a path",
+      "effect": "read-only",
+      "risk": "Low",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "maxOutputBytes": {
+            "default": 65536,
+            "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
+            "maximum": 1048576,
+            "minimum": 1024,
+            "type": "integer"
+          },
+          "org": {
+            "default": "default",
+            "description": "The store's organization path segment.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "sinceSeconds": {
+            "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
+            "maximum": 2592000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "stream": {
+            "default": "dekopon",
+            "description": "The stream both dekopon daemons export into. stream-name=dekopon routes traces and logs here; spans are not in the default trace stream.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "url": {
+            "description": "The store's base URL, with no trailing slash: https://rpi.lan/openobserve. A host outside the grant's allowedHosts is a denied egress, never a leak.",
+            "maxLength": 512,
+            "minLength": 8,
+            "pattern": "^https?://",
+            "type": "string"
+          },
+          "view": {
+            "description": "Which fleet view.",
+            "enum": [
+              "providers"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "sinceSeconds",
+          "view"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "id": "openobserve.broker-usage",
+      "description": "The fleet view over the window: calls grouped by provider, capability, or agent, or refusals grouped by reason. Every agent's counts, which is what a fleet view is",
+      "effect": "read-only",
+      "risk": "Low",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "by": {
+            "default": "provider",
+            "description": "How usage groups. Ignored by denials.",
+            "enum": [
+              "provider",
+              "capability",
+              "agent"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "default": 100,
+            "description": "Rows to ask the store for.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxOutputBytes": {
+            "default": 65536,
+            "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
+            "maximum": 1048576,
+            "minimum": 1024,
+            "type": "integer"
+          },
+          "org": {
+            "default": "default",
+            "description": "The store's organization path segment.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "sinceSeconds": {
+            "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
+            "maximum": 2592000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "stream": {
+            "default": "dekopon",
+            "description": "The stream both dekopon daemons export into. stream-name=dekopon routes traces and logs here; spans are not in the default trace stream.",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "url": {
+            "description": "The store's base URL, with no trailing slash: https://rpi.lan/openobserve. A host outside the grant's allowedHosts is a denied egress, never a leak.",
+            "maxLength": 512,
+            "minLength": 8,
+            "pattern": "^https?://",
+            "type": "string"
+          },
+          "view": {
+            "description": "Which fleet view.",
+            "enum": [
+              "usage",
+              "denials"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "sinceSeconds",
+          "view"
+        ],
+        "type": "object"
+      }
+    }
+  ],
+  "commandWords": [
+    "openobserve",
+    "agent",
+    "broker"
+  ]
+}

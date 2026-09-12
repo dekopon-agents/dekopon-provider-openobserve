@@ -1,0 +1,117 @@
+# dekopon-brokerd — the only process in this example that holds any authority.
+#
+# It owns the socket, policy, constraint sets, the secret map, and the audit log. Every relative
+# path below resolves against this file's own directory, so the example runs from a checkout without
+# editing repository paths. The absolute `/home/xavier/...` paths are runtime state.
+#
+# Hygiene, all checked at startup and all fatal:
+#   chmod 0600 broker.yaml policies.cedar secret-map.yaml
+#   chmod 0700 ~/.local/run/dekopon
+apiVersion: dekopon.dev/brokerd/v1alpha1
+
+socketPath: /home/xavier/.local/run/dekopon/broker.sock
+
+brokerPrincipal: local-broker
+policyRevision: agent-telemetry-2026-09
+
+secretMapPath: secret-map.yaml
+policiesPath: policies.cedar
+
+# A capability typo is a mistake, not an anticipation, so refuse startup instead of warning.
+strict: true
+
+providers:
+  - ../../openobserve-provider.wasm
+
+identities:
+  - uid: 501
+    principal: operator
+    actor:
+      type: service
+      principal: operator
+
+constraintSets:
+  # Effect and risk must match the component's manifest byte for byte or the broker refuses to
+  # start. Every id here is `read-only`; only the raw search is Medium.
+  #
+  # `maxRequests` is the number of `_search` calls the word makes, and it differs per word because
+  # the plan does. `agent stats` is the widest at three — the agent's sessions, the model turns
+  # beneath them joined by `trace_id`, then its broker decisions — and two of those are a different
+  # signal, so they cannot be one statement. A component that tried a fourth call is denied
+  # mid-invocation.
+  openobserve.agent-stats:
+    provider: openobserve
+    effect: read-only
+    risk: Low
+    constraints:
+      timeoutMs: 20000
+      maxOutputBytes: 65536
+      http:
+        allowedHosts: [rpi.lan]
+        allowedMethods: [POST]
+        maxRequests: 3
+        maxRequestBytes: 16384
+        maxResponseBytes: 2097152
+        # The store is http://rpi.lan/openobserve today, and the native HTTP host refuses plaintext
+        # to anything but loopback. See the README: either put TLS on that IngressRoute, or wait for
+        # dekopon's broker-level plaintext allowlist and name rpi.lan in it.
+        allowPlaintextLoopback: false
+  openobserve.broker-providers:
+    provider: openobserve
+    effect: read-only
+    risk: Low
+    constraints:
+      timeoutMs: 20000
+      maxOutputBytes: 65536
+      http:
+        allowedHosts: [rpi.lan]
+        allowedMethods: [POST]
+        maxRequests: 2
+        maxRequestBytes: 16384
+        maxResponseBytes: 2097152
+        allowPlaintextLoopback: false
+  openobserve.broker-usage:
+    provider: openobserve
+    effect: read-only
+    risk: Low
+    constraints:
+      timeoutMs: 20000
+      maxOutputBytes: 131072
+      http:
+        allowedHosts: [rpi.lan]
+        allowedMethods: [POST]
+        maxRequests: 1
+        maxRequestBytes: 16384
+        maxResponseBytes: 2097152
+        allowPlaintextLoopback: false
+  openobserve.trace:
+    provider: openobserve
+    effect: read-only
+    risk: Low
+    constraints:
+      timeoutMs: 20000
+      maxOutputBytes: 131072
+      http:
+        allowedHosts: [rpi.lan]
+        allowedMethods: [POST]
+        maxRequests: 1
+        maxRequestBytes: 16384
+        maxResponseBytes: 4194304
+        allowPlaintextLoopback: false
+  # The raw search returns whatever the statement selects, transcripts included. `maxResponseBytes`
+  # is a refusal rather than a truncation, so it is sized for 500 wide rows and the provider asks
+  # for `size <= --limit`.
+  openobserve.search:
+    provider: openobserve
+    effect: read-only
+    risk: Medium
+    constraints:
+      timeoutMs: 30000
+      maxOutputBytes: 262144
+      http:
+        allowedHosts: [rpi.lan]
+        allowedMethods: [POST]
+        maxRequests: 1
+        maxRequestBytes: 16384
+        maxResponseBytes: 4194304
+        allowPlaintextLoopback: false

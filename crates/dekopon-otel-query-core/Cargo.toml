@@ -1,0 +1,21 @@
+[package]
+name = "dekopon-otel-query-core"
+description = "Backend-neutral command grammar, window bounds, column projection, and output shapes for Dekopon telemetry-query providers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# The guest HTTP facade, for `Request`/`Response` alone. It carries no transport — `send` is a host
+# import — so a native `cargo test` links it and never calls it, which is what lets every planner
+# and folder in this crate be tested as ordinary Rust against recorded bytes.
+dekopon-provider-http.workspace = true
+dekopon-provider-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

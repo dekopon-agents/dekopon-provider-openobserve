@@ -1,0 +1,1 @@
+{"took":7,"hits":[{"capability_id":"gh.pull-request.read","decision_allowed":true,"decision_reason":null,"calls":17},{"capability_id":"gh.pull-request.files","decision_allowed":true,"decision_reason":null,"calls":12},{"capability_id":"gh.pull-request.merge","decision_allowed":false,"decision_reason":"policy-denied","calls":1}],"total":3,"from":0,"size":200,"scan_size":4}

@@ -1,0 +1,10 @@
+package dekopon:openobserve@0.1.0;
+
+/// A bounded, read-only query client for an OpenObserve telemetry store. It requires
+/// broker-mediated HTTP and the host's wall clock, and contributes the `openobserve`, `agent`, and
+/// `broker` command words.
+world provider {
+    include dekopon:provider/provider-cli@0.3.0;
+    import dekopon:http/client@1.0.0;
+    import dekopon:clock/wall@1.0.0;
+}

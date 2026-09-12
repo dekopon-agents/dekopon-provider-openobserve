@@ -1,0 +1,1 @@
+These files are byte-for-byte mirrors of the WIT shipped by the `dekopon-provider-sdk` and `dekopon-provider-http` sources this crate is pinned to. CI resolves the pin from `Cargo.lock` — a git rev today, a tag after dekopon 0.13.0 publishes — fetches the originals from that exact commit, and compares.
