@@ -11,6 +11,15 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "format": {
+            "default": "json",
+            "description": "json is one object with a rows array and the store's own column names as row keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a fixed-width text table to read directly. Both carry truncated and omittedRows.",
+            "enum": [
+              "json",
+              "table"
+            ],
+            "type": "string"
+          },
           "limit": {
             "default": 100,
             "description": "Rows to ask the store for.",
@@ -86,6 +95,15 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "format": {
+            "default": "json",
+            "description": "json is one object with a rows array and the store's own column names as row keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a fixed-width text table to read directly. Both carry truncated and omittedRows.",
+            "enum": [
+              "json",
+              "table"
+            ],
+            "type": "string"
+          },
           "limit": {
             "default": 100,
             "description": "Rows to ask the store for.",
@@ -160,6 +178,15 @@
             "pattern": "^[A-Za-z0-9_-]+$",
             "type": "string"
           },
+          "format": {
+            "default": "json",
+            "description": "json is one object with a rows array and the store's own column names as row keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a fixed-width text table to read directly. Both carry truncated and omittedRows.",
+            "enum": [
+              "json",
+              "table"
+            ],
+            "type": "string"
+          },
           "maxOutputBytes": {
             "default": 65536,
             "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
@@ -213,6 +240,15 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "format": {
+            "default": "json",
+            "description": "json is one object with a rows array and the store's own column names as row keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a fixed-width text table to read directly. Both carry truncated and omittedRows.",
+            "enum": [
+              "json",
+              "table"
+            ],
+            "type": "string"
+          },
           "maxOutputBytes": {
             "default": 65536,
             "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
@@ -280,6 +316,15 @@
               "provider",
               "capability",
               "agent"
+            ],
+            "type": "string"
+          },
+          "format": {
+            "default": "json",
+            "description": "json is one object with a rows array and the store's own column names as row keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a fixed-width text table to read directly. Both carry truncated and omittedRows.",
+            "enum": [
+              "json",
+              "table"
             ],
             "type": "string"
           },

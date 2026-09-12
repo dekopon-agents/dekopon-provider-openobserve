@@ -143,6 +143,18 @@ fn scope_properties() -> serde_json::Map<String, Value> {
         }),
     );
     properties.insert(
+        "format".to_owned(),
+        json!({
+            "type": "string",
+            "enum": ["json", "table"],
+            "default": "json",
+            "description":
+                "json is one object with a rows array and the store's own column names as row \
+                 keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a \
+                 fixed-width text table to read directly. Both carry truncated and omittedRows."
+        }),
+    );
+    properties.insert(
         "maxOutputBytes".to_owned(),
         json!({
             "type": "integer",
@@ -344,6 +356,7 @@ mod tests {
                 capability.id
             );
             assert!(properties.contains_key("url"), "{}", capability.id);
+            assert_eq!(properties["format"]["default"], "json", "{}", capability.id);
             let required = schema["required"].as_array().expect("required");
             assert!(
                 required.contains(&serde_json::json!("url")),

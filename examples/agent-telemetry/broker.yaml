@@ -20,6 +20,13 @@ policiesPath: policies.cedar
 # A capability typo is a mistake, not an anticipation, so refuse startup instead of warning.
 strict: true
 
+# dekopon PR #252: the owner names the plaintext hosts, once, here. Without it the native HTTP host
+# refuses `http://` to anything but loopback and this provider makes zero calls against the homelab
+# store. Delete this block and put TLS on the /openobserve IngressRoute instead if you would rather
+# not send a Basic credential in the clear across the LAN.
+http:
+  plaintextHosts: [rpi.lan]
+
 providers:
   - ../../openobserve-provider.wasm
 
@@ -47,15 +54,14 @@ constraintSets:
       timeoutMs: 20000
       maxOutputBytes: 65536
       http:
-        allowedHosts: [rpi.lan]
+        allowedHosts: ["rpi.lan:5080"]
         allowedMethods: [POST]
         maxRequests: 3
         maxRequestBytes: 16384
         maxResponseBytes: 2097152
-        # The store is http://rpi.lan/openobserve today, and the native HTTP host refuses plaintext
-        # to anything but loopback. See the README: either put TLS on that IngressRoute, or wait for
-        # dekopon's broker-level plaintext allowlist and name rpi.lan in it.
-        allowPlaintextLoopback: false
+        # Opts this capability into the plaintextHosts allowlist above. With TLS on the
+        # /openobserve IngressRoute instead, set this false and use https:// in --url.
+        allowPlaintextLoopback: true
   openobserve.broker-providers:
     provider: openobserve
     effect: read-only
@@ -64,12 +70,12 @@ constraintSets:
       timeoutMs: 20000
       maxOutputBytes: 65536
       http:
-        allowedHosts: [rpi.lan]
+        allowedHosts: ["rpi.lan:5080"]
         allowedMethods: [POST]
         maxRequests: 2
         maxRequestBytes: 16384
         maxResponseBytes: 2097152
-        allowPlaintextLoopback: false
+        allowPlaintextLoopback: true
   openobserve.broker-usage:
     provider: openobserve
     effect: read-only
@@ -78,12 +84,12 @@ constraintSets:
       timeoutMs: 20000
       maxOutputBytes: 131072
       http:
-        allowedHosts: [rpi.lan]
+        allowedHosts: ["rpi.lan:5080"]
         allowedMethods: [POST]
         maxRequests: 1
         maxRequestBytes: 16384
         maxResponseBytes: 2097152
-        allowPlaintextLoopback: false
+        allowPlaintextLoopback: true
   openobserve.trace:
     provider: openobserve
     effect: read-only
@@ -92,12 +98,12 @@ constraintSets:
       timeoutMs: 20000
       maxOutputBytes: 131072
       http:
-        allowedHosts: [rpi.lan]
+        allowedHosts: ["rpi.lan:5080"]
         allowedMethods: [POST]
         maxRequests: 1
         maxRequestBytes: 16384
         maxResponseBytes: 4194304
-        allowPlaintextLoopback: false
+        allowPlaintextLoopback: true
   # The raw search returns whatever the statement selects, transcripts included. `maxResponseBytes`
   # is a refusal rather than a truncation, so it is sized for 500 wide rows and the provider asks
   # for `size <= --limit`.
@@ -109,9 +115,9 @@ constraintSets:
       timeoutMs: 30000
       maxOutputBytes: 262144
       http:
-        allowedHosts: [rpi.lan]
+        allowedHosts: ["rpi.lan:5080"]
         allowedMethods: [POST]
         maxRequests: 1
         maxRequestBytes: 16384
         maxResponseBytes: 4194304
-        allowPlaintextLoopback: false
+        allowPlaintextLoopback: true

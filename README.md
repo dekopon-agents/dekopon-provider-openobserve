@@ -70,6 +70,49 @@ into camelCase JSON keys before calling a capability, so a provider declaring sn
 `dekopon-provider-mediawiki` v0.1.0 shipped, and this component's wire is camelCase in both
 directions to avoid it. A test asserts no proposal carries a key with an underscore.
 
+## Two output formats, and why the default is the pipeable one
+
+```sh
+openobserve sql --url ... --since 1h 'SELECT operation_name, duration FROM "dekopon"' \
+  | jq '.rows[] | .duration_ms'
+agent stats --url ... --agent reviewer --since 24h --format table
+```
+
+Every word takes `--format json|table`, and `json` is the default.
+
+**`json` is one object, not JSON Lines.** The shell's `jq` builtin takes the piped command's
+*value* — `run(&self, ..., input: Option<Value>)`, handed straight to the jaq interpreter — so a
+capability that returns one JSON object is already composable with no wrapper and no parse step.
+JSON Lines would have to be reassembled by whoever consumed it, and the one consumer that matters
+here never sees text. So: one object, `{"rows":[...],"returned":n,"total":t,"truncated":b,"omittedRows":k}`,
+for every word that returns rows.
+
+**Row keys are the store's, envelope keys are #250's.** A row's keys are the folded column names
+exactly as OpenObserve returned them — `duration_ms`, `capability_id`, `operation_name`,
+`usage_input_tokens` — passed through untouched, because renaming them would break the filter a
+model wrote against a `SELECT` it typed itself. The envelope and the `agent stats` statistic keys
+are camelCase (`omittedRows`, `turns.durationMs.p95`, `tokens.cachedInput`) because #250 specifies
+that shape byte for byte as the contract every backend must produce. The two conventions meet at the
+envelope boundary and neither moves.
+
+**`table` is a fixed-width text table** for a model to read directly rather than filter. Columns come
+from the rows' keys in the parsed object's order, which is alphabetical and therefore stable across
+two answers to the same question; a cell wider than 48 characters is elided with an ellipsis and
+newlines are flattened, so no value can break the shape. The truncation marker is a footer line:
+
+```text
+duration_ms  operation_name     trace_id
+-----------  -----------------  --------------------------------
+41           gateway.session    0af7651916cd43dd8448eb211c80319c
+2140         prompt.model_turn  1bf7651916cd43dd8448eb211c80319d
+-- 2 of 1873 rows; truncated, 1871 omitted
+```
+
+`agent stats`, which is an object rather than rows, renders as a two-column table of flattened paths
+(`turns.durationMs.p95  9800`). The table is returned as a JSON string and the shell emits a string
+result verbatim, so it prints as a table and not as a quoted scalar. Both formats carry
+`truncated`/`omittedRows`, and a test asserts that for each.
+
 ## Bounds the provider enforces itself
 
 `ExecutionConstraints` is `deny_unknown_fields` and a query-window key would be tree growth in
@@ -187,11 +230,24 @@ preference:
 1. **TLS on the `/openobserve` IngressRoute.** The h2c ingest route on 5081 stays as it is; only the
    5080 API route needs a certificate. Then `--url https://rpi.lan/openobserve` and nothing else
    changes.
-2. **The broker-level plaintext allowlist**, being added to dekopon concurrently (PR titled
-   "plaintext allowlist"). An owner names `rpi.lan` in it and `http://rpi.lan/openobserve` becomes
-   reachable. That is an owner decision about a LAN they control, recorded in owner configuration
-   where an auditor can see it — which is the right shape, and it is still a plaintext Basic
-   credential crossing a home network, so TLS remains the better answer.
+2. **The broker-level plaintext allowlist**, merged as dekopon PR #252. The owner names the host in
+   `broker.yaml` and opts the constraint set in:
+
+   ```yaml
+   http:
+     plaintextHosts: [rpi.lan]
+   constraintSets:
+     openobserve.agent-stats:
+       constraints:
+         http:
+           allowedHosts: ["rpi.lan:5080"]
+           allowPlaintextLoopback: true
+   ```
+
+   Then `--url http://rpi.lan:5080/openobserve` reaches the store with the provider unchanged. It is
+   an owner decision about a LAN they control, written where an auditor can see it — the right shape
+   — and it is still a plaintext Basic credential crossing a home network, so TLS remains the better
+   answer.
 
 Either way the provider is unchanged: the endpoint is an argument, not a build constant.
 
@@ -210,10 +266,10 @@ resolved address and the error travels to a model.
 
 ## Test coverage, and what is not covered
 
-**Pure Rust against recorded answers, which is everything this repository can prove.** 66 tests:
+**Pure Rust against recorded answers, which is everything this repository can prove.** 74 tests:
 the window arithmetic and the cap, the projection exclusion list against every column any statement
-names, the fitting and truncation counts, the SQL gate, the clap trees for all three words, the exact
-bytes of every request (URI, `type=`, microsecond `start_time`/`end_time`, `size`, headers), and
+names, the fitting and truncation counts, the SQL gate, the clap trees for all three words, both output formats and
+the truncation marker in each, the exact bytes of every request (URI, `type=`, microsecond `start_time`/`end_time`, `size`, headers), and
 the exact projection of every response from fixtures in
 `crates/dekopon-openobserve-provider/tests/fixtures/`. The transport and the wall clock are both
 injected at the same seam the component uses, so what the tests exercise is what ships.
@@ -245,7 +301,7 @@ dekopon's `examples/providers/build-component.sh`, salt included: a rustc proxy 
 `-Cmetadata`, `--remap-path-prefix` for the source root, the cargo home, and the sysroot, and a
 grep that fails the build if any local path survived into the component.
 
-`0.1.0` is `455856` bytes, `sha256:f4d7a25bdd6a81a91f99f16e0f0156406f8f2c63722384d6b25f4b8f5e695e6a` on macOS arm64.
+`0.1.0` is `476340` bytes, `sha256:34c004929dd109850c88d59a05d622823d60b8521cd3f3e16868fef64a2b41c3` on macOS arm64.
 
 The gate also asserts the things that stop being true quietly: the WIT mirrors match the pinned
 crates byte for byte, the guest dependency tree contains no `wasi`, `wasm-bindgen`, or `js-sys`, no

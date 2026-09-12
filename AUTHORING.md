@@ -91,3 +91,31 @@ Not run: any call against a live OpenObserve. The homelab API is `http://rpi.lan
 the native HTTP host refuses plaintext to non-loopback destinations, so the first real call waits on
 TLS or on dekopon's broker-level plaintext allowlist. The fixtures are built to the documented
 `_search` response shape and OpenObserve's own span record, not captured.
+
+## 2026-09-12 — two output formats
+
+**JSON by default, one object, not JSON Lines.** The deciding fact is in
+`dekopon-shell/src/builtins/jq.rs`: the builtin's signature is `run(&self, …, input: Option<Value>)`
+and that value goes straight into jaq. The shell pipes a *value*, not text, so a capability
+returning one JSON object is already composable — `openobserve sql … | jq '.rows[] | .duration_ms'`
+needs no wrapper and no parse step. JSON Lines would have to be reassembled by a consumer that never
+sees text in the first place.
+
+**Row keys stayed the store's.** The envelope is #250's camelCase contract and the rows are
+OpenObserve's folded snake_case columns, untouched. Renaming `duration_ms` to `durationMs` would
+have broken the filter a model writes against a `SELECT` it typed itself, which is the whole point
+of the raw word. The boundary between the two conventions is the envelope, and it is documented
+rather than smoothed over.
+
+**`--format table` returns a string.** The shell emits a string result verbatim, so a table prints
+as a table. Column order is the parsed object's key order, which `serde_json`'s default map makes
+alphabetical — stable across two answers to the same question, which is what a model re-reading a
+result needs. Cells are capped at 48 characters and newlines flattened, so no value can break the
+shape. The truncation marker is a footer line, because "rows were dropped" must survive every
+rendering.
+
+**Plaintext.** dekopon PR #252 landed the broker-level allowlist while this was being built, so the
+README and the example name it — `http.plaintextHosts: [rpi.lan]` in `broker.yaml` plus
+`allowedHosts: ["rpi.lan:5080"]` and `allowPlaintextLoopback: true` on each constraint set — instead
+of describing a pending change. TLS on the IngressRoute is still the better answer and the README
+still says so.

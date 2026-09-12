@@ -137,6 +137,7 @@ mod tests {
                 stream: "dekopon".to_owned(),
                 since_seconds: 3_600,
                 max_output_bytes: 65_536,
+                format: crate::query::Format::Json,
             },
             signal: Signal::Traces,
             sql: "SELECT 1".to_owned(),

@@ -21,16 +21,22 @@ dekopon-brokerd --config broker.yaml
 Then, from a shell session the broker grants:
 
 ```sh
-agent stats --url https://rpi.lan/openobserve --agent reviewer --since 24h
-broker usage --url https://rpi.lan/openobserve --since 24h --by capability
-openobserve trace --url https://rpi.lan/openobserve --since 1h 0af7651916cd43dd8448eb211c80319c
-openobserve sql --url https://rpi.lan/openobserve --since 1h --limit 5 \
-  "SELECT operation_name, duration FROM \"dekopon\" WHERE service_name = 'dekopond' ORDER BY _timestamp DESC LIMIT 5"
+agent stats --url http://rpi.lan:5080/openobserve --agent reviewer --since 24h --format table
+broker usage --url http://rpi.lan:5080/openobserve --since 24h --by capability
+openobserve trace --url http://rpi.lan:5080/openobserve --since 1h 0af7651916cd43dd8448eb211c80319c
+openobserve sql --url http://rpi.lan:5080/openobserve --since 1h --limit 5 \
+  "SELECT operation_name, duration FROM \"dekopon\" WHERE service_name = 'dekopond' ORDER BY _timestamp DESC LIMIT 5" \
+  | jq '.rows[] | .operation_name'
 ```
 
-`--url` is `https://` here, not `http://`. The store is `http://rpi.lan/openobserve` today and the
-native HTTP host refuses plaintext to any non-loopback destination; the repository README's
-**Plaintext** section is the whole story and both ways out of it.
+`http://` works here only because `broker.yaml` names `rpi.lan` in `http.plaintextHosts` (dekopon
+PR #252) and each constraint set sets `allowPlaintextLoopback: true`. Without that the native HTTP
+host refuses plaintext to any non-loopback destination and this provider makes zero calls. Put TLS
+on the `/openobserve` IngressRoute and the block comes out; the repository README's **Plaintext**
+section is the whole story.
+
+`--format table` renders the same answer as a fixed-width text table. The default is JSON, which
+pipes into the shell's `jq` with no wrapper because that builtin takes the piped command's value.
 
 ## What each file is load-bearing for
 

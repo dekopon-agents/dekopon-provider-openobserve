@@ -139,8 +139,10 @@ where
 {
     let mut query = parse(capability, input).map_err(provider_error)?;
     query.validate().map_err(provider_error)?;
-    dekopon_otel_query_core::run(&backend::OpenObserve::at(now_us), &query, send)
-        .map_err(provider_error)
+    let rendering = query.scope().format;
+    let answer = dekopon_otel_query_core::run(&backend::OpenObserve::at(now_us), &query, send)
+        .map_err(provider_error)?;
+    Ok(dekopon_otel_query_core::output::format(answer, rendering))
 }
 
 /// Parses the input object into the typed query its capability names.
@@ -318,6 +320,84 @@ mod tests {
         assert_eq!(output["total"], 1_873);
         assert_eq!(output["truncated"], true);
         assert_eq!(output["omittedRows"], 1_871);
+    }
+
+    /// The two formats, from one recorded answer: JSON pipes, the table reads, and both say the
+    /// store had 1873 rows and this envelope carries two.
+    #[test]
+    fn both_formats_come_out_of_the_same_answer_with_the_same_marker() {
+        let (transport, _) = scripted(&[(200, SEARCH_TRACES)]);
+        let input = json!({
+            "url": "http://rpi.lan/openobserve",
+            "sinceSeconds": 3_600,
+            "signal": "traces",
+            "sql": "SELECT trace_id, operation_name FROM \"dekopon\"",
+            "limit": 2
+        });
+        let json_output = invoke_with(
+            &capability("openobserve.search"),
+            input.clone(),
+            NOW_US,
+            transport,
+        )
+        .expect("rows");
+        assert_eq!(json_output["rows"][0]["operation_name"], "gateway.session");
+        assert_eq!(json_output["truncated"], true);
+        assert_eq!(json_output["omittedRows"], 1_871);
+
+        let (transport, _) = scripted(&[(200, SEARCH_TRACES)]);
+        let mut table_input = input;
+        table_input["format"] = json!("table");
+        let table = invoke_with(
+            &capability("openobserve.search"),
+            table_input,
+            NOW_US,
+            transport,
+        )
+        .expect("a table");
+        let text = table
+            .as_str()
+            .expect("a table is a string the shell prints verbatim");
+        // Column order is the parsed object's key order, which `serde_json`'s default map makes
+        // alphabetical — stable across runs, which is what a model reading two answers needs.
+        let header = text.lines().next().expect("a header");
+        assert_eq!(
+            header.split_whitespace().collect::<Vec<_>>(),
+            ["operation_name", "trace_id"]
+        );
+        assert!(text.contains("gateway.session"), "{text}");
+        assert_eq!(
+            text.lines().last(),
+            Some("-- 2 of 1873 rows; truncated, 1871 omitted"),
+            "{text}"
+        );
+    }
+
+    /// `agent stats` renders as a two-column table too, with the same numbers.
+    #[test]
+    fn agent_stats_renders_as_a_table_of_flattened_paths() {
+        let (transport, _) = scripted(&[
+            (200, AGENT_SESSIONS),
+            (200, AGENT_TURNS),
+            (200, AGENT_DECISIONS),
+        ]);
+        let table = invoke_with(
+            &capability("openobserve.agent-stats"),
+            json!({
+                "url": "http://rpi.lan/openobserve",
+                "sinceSeconds": 86_400,
+                "agent": "reviewer",
+                "format": "table"
+            }),
+            NOW_US,
+            transport,
+        )
+        .expect("a table");
+        let text = table.as_str().expect("a string");
+        assert!(text.contains("turns.durationMs.p95"), "{text}");
+        assert!(text.contains("9800"), "{text}");
+        assert!(text.contains("tokens.cachedInput"), "{text}");
+        assert!(text.contains("capabilities.gh.pull-request.read"), "{text}");
     }
 
     /// `agent stats` is three statements: the agent's sessions, the turns beneath them, and the

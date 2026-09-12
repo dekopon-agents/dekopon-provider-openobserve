@@ -23,6 +23,7 @@ pub mod grammar;
 pub mod output;
 pub mod projection;
 pub mod query;
+pub mod table;
 pub mod window;
 
 pub use backend::{Backend, run};

@@ -126,6 +126,7 @@ mod tests {
             stream: "dekopon".to_owned(),
             since_seconds: 86_400,
             max_output_bytes: 65_536,
+            format: dekopon_otel_query_core::query::Format::Json,
         }
     }
 

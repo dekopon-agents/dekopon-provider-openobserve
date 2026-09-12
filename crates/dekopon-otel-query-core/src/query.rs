@@ -60,6 +60,22 @@ impl fmt::Display for Signal {
     }
 }
 
+/// How an answer is rendered.
+///
+/// `Json` is the default and the composable one: the shell's `jq` builtin takes the piped command's
+/// *value*, so one JSON object pipes into `jq '.rows[] | .duration_ms'` with no wrapper. `Table` is
+/// a fixed-width text table for a model to read directly, returned as a string because the shell
+/// emits a string result verbatim. Both carry the truncation marker.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Format {
+    /// One JSON object. The default.
+    #[default]
+    Json,
+    /// A fixed-width text table.
+    Table,
+}
+
 /// How `broker usage` groups its rows.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -106,6 +122,9 @@ pub struct Scope {
     /// The ceiling the result is fitted under.
     #[serde(default = "default_max_output_bytes")]
     pub max_output_bytes: usize,
+    /// How the answer is rendered.
+    #[serde(default)]
+    pub format: Format,
 }
 
 fn default_org() -> String {
@@ -174,6 +193,7 @@ impl Scope {
         stream: String,
         since: &str,
         max_output_bytes: usize,
+        format: Format,
     ) -> Result<Self, QueryError> {
         let since_seconds = parse_since(since).map_err(QueryError::invalid)?;
         let mut scope = Self {
@@ -182,6 +202,7 @@ impl Scope {
             stream,
             since_seconds,
             max_output_bytes,
+            format,
         };
         scope.validate()?;
         Ok(scope)
@@ -448,7 +469,7 @@ pub fn quote_literal(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        BrokerQuery, BrokerView, Query, QueryError, Scope, SearchQuery, Signal, TraceQuery,
+        BrokerQuery, BrokerView, Format, Query, QueryError, Scope, SearchQuery, Signal, TraceQuery,
         UsageGrouping, check_statement, quote_literal,
     };
     use crate::fit::DEFAULT_MAX_OUTPUT_BYTES;
@@ -460,6 +481,7 @@ mod tests {
             stream: "dekopon".to_owned(),
             since_seconds: 86_400,
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+            format: Format::default(),
         }
     }
 
@@ -480,6 +502,7 @@ mod tests {
             "stream",
             "sinceSeconds",
             "maxOutputBytes",
+            "format",
             "signal",
             "sql",
             "limit",
@@ -513,6 +536,11 @@ mod tests {
         assert_eq!(query.scope.org, "default");
         assert_eq!(query.scope.stream, "dekopon");
         assert_eq!(query.scope.max_output_bytes, DEFAULT_MAX_OUTPUT_BYTES);
+        assert_eq!(
+            query.scope.format,
+            Format::Json,
+            "JSON is the pipeable default"
+        );
         assert_eq!(query.limit, 100);
     }
 

@@ -13,7 +13,22 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value, json};
 
 use crate::fit::fit_object;
+use crate::query::Format;
+use crate::table;
 use crate::window::Window;
+
+/// Applies the caller's `--format` to a finished answer.
+///
+/// `Json` returns the object unchanged — the shell's `jq` builtin takes the piped command's value,
+/// so it is already composable. `Table` returns the rendered table as a JSON string, which the
+/// shell emits verbatim.
+#[must_use]
+pub fn format(value: Value, format: Format) -> Value {
+    match format {
+        Format::Json => value,
+        Format::Table => Value::String(table::render(&value)),
+    }
+}
 
 /// Latency, as the two percentiles a model actually reads.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -147,8 +162,31 @@ pub fn percentile(sorted: &[u64], quantile: f64) -> u64 {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{AgentStats, Latency, Tokens, agent_stats, broker_providers, percentile};
+    use super::{AgentStats, Latency, Tokens, agent_stats, broker_providers, format, percentile};
+    use crate::query::Format;
     use crate::window::Window;
+
+    /// Both formats carry the same truncation marker, which is the one thing neither may drop.
+    #[test]
+    fn both_formats_carry_the_truncation_marker() {
+        let envelope = serde_json::json!({
+            "rows": [{"duration_ms": 41}],
+            "returned": 1,
+            "total": 1873,
+            "truncated": true,
+            "omittedRows": 1872
+        });
+        let json = format(envelope.clone(), Format::Json);
+        assert_eq!(json["truncated"], true);
+        assert_eq!(json["omittedRows"], 1872);
+        // Row keys are the store's own, so a filter written against a SELECT keeps working.
+        assert_eq!(json["rows"][0]["duration_ms"], 41);
+
+        let rendered = format(envelope, Format::Table);
+        let text = rendered.as_str().expect("a table is a string");
+        assert!(text.contains("duration_ms"), "{text}");
+        assert!(text.contains("truncated, 1872 omitted"), "{text}");
+    }
 
     fn window() -> Window {
         Window::ending_at(1_789_000_000_000_000, 86_400)

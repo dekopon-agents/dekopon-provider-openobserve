@@ -17,8 +17,8 @@ use dekopon_provider_sdk::{CapabilityId, CommandInvocation, CommandRun, Provider
 use serde_json::{Value, json};
 
 use crate::query::{
-    BrokerView, DEFAULT_LIMIT, DEFAULT_ORG, DEFAULT_STREAM, MAX_LIMIT, QueryError, Scope, Signal,
-    UsageGrouping, check_statement,
+    BrokerView, DEFAULT_LIMIT, DEFAULT_ORG, DEFAULT_STREAM, Format, MAX_LIMIT, QueryError, Scope,
+    Signal, UsageGrouping, check_statement,
 };
 use crate::window::MAX_WINDOW_SECONDS;
 
@@ -133,6 +133,9 @@ pub fn overview(raw_word: &str, about: &str) -> String {
          \x20 broker providers --url <URL> --since <DURATION>\n\
          \x20 broker usage --url <URL> --since <DURATION> [--by provider|capability|agent]\n\
          \x20 broker denials --url <URL> --since <DURATION>\n\n\
+         Every word takes --format json|table. json is the default and is one object with a rows\n\
+         array, so `<word> … | jq '.rows[] | .duration_ms'` works with no wrapper; row keys are the\n\
+         store's own column names. table renders a fixed-width text table instead.\n\n\
          --since is capped at 30d and --limit at 500. Attribute names are folded to letters, digits\n\
          and underscore: audit.event is the column audit_event.\n\n\
          Try `{raw_word} sql --help`, `agent stats --help`, or `broker usage --help`.\n"
@@ -171,6 +174,18 @@ fn scope_arguments(command: Command) -> Command {
                 .value_name("DURATION")
                 .required(true)
                 .help(SINCE_HELP),
+        )
+        .arg(
+            Arg::new("format")
+                .long("format")
+                .value_name("FORMAT")
+                .value_parser(["json", "table"])
+                .default_value("json")
+                .help(
+                    "json (default) is one object with a rows array, which pipes straight into \
+                     `| jq '.rows[] | .duration_ms'`; table is a fixed-width text table to read \
+                     directly. Both carry the truncation marker",
+                ),
         )
         .arg(
             Arg::new("max-output-bytes")
@@ -511,6 +526,10 @@ fn scope_from(matches: &ArgMatches) -> Result<Value, ProviderError> {
             .get_one::<u64>("max-output-bytes")
             .and_then(|value| usize::try_from(*value).ok())
             .unwrap_or(crate::fit::DEFAULT_MAX_OUTPUT_BYTES),
+        match string(matches, "format").as_deref() {
+            Some("table") => Format::Table,
+            _ => Format::Json,
+        },
     )
     .map_err(decline)?;
     serde_json::to_value(scope).map_err(|error| usage(error.to_string()))
@@ -663,6 +682,7 @@ mod tests {
         assert_eq!(invocation.input["org"], "default");
         assert_eq!(invocation.input["stream"], "dekopon");
         assert_eq!(invocation.input["sinceSeconds"], 86_400);
+        assert_eq!(invocation.input["format"], "json");
         assert_eq!(invocation.input["signal"], "traces");
         assert_eq!(invocation.input["limit"], 50);
         assert_eq!(invocation.input["sql"], "SELECT trace_id FROM \"dekopon\"");
