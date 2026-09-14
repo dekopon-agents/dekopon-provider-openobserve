@@ -303,6 +303,8 @@ grep that fails the build if any local path survived into the component.
 
 `0.1.0` is `476340` bytes, `sha256:34c004929dd109850c88d59a05d622823d60b8521cd3f3e16868fef64a2b41c3` on macOS arm64.
 
+`0.2.0` is `477463` bytes, `sha256:cc61fb4244baa5344fe6ab07ebb0ee79181fe745ee72a797d63c6ca4782700dc` on macOS arm64.
+
 The gate also asserts the things that stop being true quietly: the WIT mirrors match the pinned
 crates byte for byte, the guest dependency tree contains no `wasi`, `wasm-bindgen`, or `js-sys`, no
 hand-written `unsafe` exists in either crate, the core module imports exactly
@@ -320,10 +322,10 @@ is why a command word's proposal carries `sinceSeconds` and never a resolved win
 
 ### The SDK pin
 
-`= "0.13.0"` from crates.io for all three guest crates, never a branch: cargo resolves a `branch =`
+`= "0.15.0"` from crates.io for all three guest crates, never a branch: cargo resolves a `branch =`
 dependency by fetching the ref, so deleting the branch upstream breaks every cold build, which is
 exactly how the first out-of-tree provider rotted. CI reads the pin out of `Cargo.lock` and fetches
-the WIT from tag `v0.13.0` to compare, so an interface change upstream fails loudly rather than
+the WIT from tag `v0.15.0` to compare, so an interface change upstream fails loudly rather than
 producing a component that mismatches the host it will be loaded into.
 
 ## Releases

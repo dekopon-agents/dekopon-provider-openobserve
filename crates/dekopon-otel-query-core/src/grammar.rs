@@ -375,6 +375,7 @@ pub fn run_agent(
                 scope,
                 json!({"agent": string(sub, "agent").unwrap_or_default()}),
             ),
+            secret_use: None,
         })
     })
 }
@@ -418,6 +419,7 @@ pub fn run_broker(
         Ok(CommandInvocation {
             capability: capability.clone(),
             input: merge(scope, extra),
+            secret_use: None,
         })
     })
 }
@@ -441,6 +443,7 @@ fn dispatch_raw(
                     scope,
                     json!({"signal": signal(sub), "sql": sql, "limit": limit(sub)}),
                 ),
+                secret_use: None,
             })
         }
         "search" => {
@@ -457,6 +460,7 @@ fn dispatch_raw(
                     scope,
                     json!({"signal": signal(sub), "sql": sql, "limit": limit(sub)}),
                 ),
+                secret_use: None,
             })
         }
         "trace" => Ok(CommandInvocation {
@@ -468,6 +472,7 @@ fn dispatch_raw(
                     "limit": limit(sub),
                 }),
             ),
+            secret_use: None,
         }),
         other => Err(usage(format!("unknown action {other}"))),
     }

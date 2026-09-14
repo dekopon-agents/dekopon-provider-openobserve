@@ -60,9 +60,9 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "dekopon-capability"
-version = "0.13.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a42301934fb6650c6cdd9fcabadcddb65fb82c9dd1baeb29c15e6783c91292fe"
+checksum = "766afe13fcfb25cb24afd00a4894e6a8e3f73ba3158540ea9a83b2c0e6f1ff03"
 dependencies = [
  "dekopon-core",
  "serde",
@@ -72,9 +72,9 @@ dependencies = [
 
 [[package]]
 name = "dekopon-core"
-version = "0.13.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab993c8d4b1f440c63dfdb00275bdfbc30fd51ae650035624666e807be06f016"
+checksum = "a15f8ce2bae51613640f4d46fec4b2add00ff6a59b3f57e3559233ebd8360805"
 dependencies = [
  "libc",
  "serde",
@@ -83,7 +83,7 @@ dependencies = [
 
 [[package]]
 name = "dekopon-openobserve-provider"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dekopon-otel-query-core",
  "dekopon-provider-clock",
@@ -96,7 +96,7 @@ dependencies = [
 
 [[package]]
 name = "dekopon-otel-query-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dekopon-provider-http",
  "dekopon-provider-sdk",
@@ -106,34 +106,33 @@ dependencies = [
 
 [[package]]
 name = "dekopon-provider-clock"
-version = "0.13.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "611b9a142c430675c103828e7e9b134b312da4702699c618148c78e60edf5bbd"
+checksum = "603049f57aeb4503e9b7c56245b24c0adf40549a133773d8181e2ff782f2e2b1"
 dependencies = [
  "wit-bindgen",
 ]
 
 [[package]]
 name = "dekopon-provider-http"
-version = "0.13.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa7a91a2fd2ed0e426d331719b3e205a1b989de48bcb9bd20f00adbf02357163"
+checksum = "3f1f4d513a0365d093ac5d332612430c326664e4ebcd625d536d05594ad4410d"
 dependencies = [
  "wit-bindgen",
 ]
 
 [[package]]
 name = "dekopon-provider-sdk"
-version = "0.13.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3744dadb6220a9c0f50ce2ee58ef709d0141b3a1faa4e7bda9ca8beab6e2399b"
+checksum = "85099a8b9d7fe66a653ea4e3621ccc490df6e84d54632de64e2022e4cc983ac9"
 dependencies = [
  "clap",
  "dekopon-capability",
  "dekopon-core",
  "serde",
  "serde_json",
- "wit-bindgen",
 ]
 
 [[package]]
