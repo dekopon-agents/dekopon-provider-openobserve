@@ -291,15 +291,16 @@ and it is not yet run.
 ## Building
 
 ```sh
-./build.sh              # produces openobserve-provider.wasm and its .sha256
-./scripts/validate.sh   # the shared shipping gate: local, CI, and release all run this
+../provider-workflows/build.sh   # produces openobserve-provider.wasm and its .sha256
 ```
 
-Requires Rust 1.98.1 and `wasm-tools 1.259.0` exactly; `build.sh` refuses anything else, because the
-build is reproducible and a different compiler is a different artifact. The harness is a port of
-dekopon's `examples/providers/build-component.sh`, salt included: a rustc proxy that normalizes
-`-Cmetadata`, `--remap-path-prefix` for the source root, the cargo home, and the sysroot, and a
-grep that fails the build if any local path survived into the component.
+Requires Rust 1.98.1 and `wasm-tools 1.259.0` exactly; the build harness refuses anything else,
+because the build is reproducible and a different compiler is a different artifact. The harness is
+`dekopon-agents/provider-workflows`'s port of dekopon's `examples/providers/build-component.sh`,
+salt included: a rustc proxy that normalizes `-Cmetadata`, `--remap-path-prefix` for the source
+root, the cargo home, and the sysroot, and a grep that fails the build if any local path survived
+into the component. The shared `ci / validate` job is the shipping gate now; there is no local
+script to run it.
 
 `0.1.0` is `476340` bytes, `sha256:34c004929dd109850c88d59a05d622823d60b8521cd3f3e16868fef64a2b41c3` on macOS arm64.
 
