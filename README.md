@@ -4,7 +4,7 @@ A bounded, read-only client for an OpenObserve telemetry store, as a Dekopon Was
 Designed in [dekopon#250](https://github.com/dekopon-agents/dekopon/issues/250).
 
 Goal 2 says everything that happened is in the operator's telemetry store. This is how an owner
-grants a model a bounded read of it: an ordinary `dekopon:http@1.0.0` client with a broker-injected,
+grants a model a bounded read of it: an ordinary `dekopon:http@1.1.0` client with a broker-injected,
 DRN-bound Basic credential, no endpoint of its own, and no authority it did not receive. It replaces
 something that was deleted rather than adding something new — `dekopon-run session list | show |
 replay` read sessions back from OpenObserve and went with the runner in 0.13.0.
@@ -309,7 +309,7 @@ script to run it.
 The gate also asserts the things that stop being true quietly: the WIT mirrors match the pinned
 crates byte for byte, the guest dependency tree contains no `wasi`, `wasm-bindgen`, or `js-sys`, no
 hand-written `unsafe` exists in either crate, the core module imports exactly
-`dekopon:http/client@1.0.0` and `dekopon:clock/wall@1.0.0` and nothing else, and the component
+`dekopon:http/client@1.1.0` and `dekopon:clock/wall@1.0.0` and nothing else, and the component
 exports exactly `describe`, `invoke`, and `run-command`.
 
 ### The clock
@@ -323,10 +323,10 @@ is why a command word's proposal carries `sinceSeconds` and never a resolved win
 
 ### The SDK pin
 
-`= "0.15.0"` from crates.io for all three guest crates, never a branch: cargo resolves a `branch =`
+`=0.18.0` from crates.io for all three guest crates, never a branch: cargo resolves a `branch =`
 dependency by fetching the ref, so deleting the branch upstream breaks every cold build, which is
-exactly how the first out-of-tree provider rotted. CI reads the pin out of `Cargo.lock` and fetches
-the WIT from tag `v0.15.0` to compare, so an interface change upstream fails loudly rather than
+exactly how the first out-of-tree provider rotted. CI reads the pin out of `Cargo.lock` and compares
+the WIT with the resolved published crates, so an interface change upstream fails loudly rather than
 producing a component that mismatches the host it will be loaded into.
 
 ## Releases

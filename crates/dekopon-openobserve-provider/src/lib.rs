@@ -1,7 +1,7 @@
 //! A bounded, read-only OpenObserve client for Dekopon: three command words over five capabilities.
 //!
 //! Goal 2 says everything that happened is in the operator's telemetry store. This component is how
-//! an owner grants a model a bounded read of it — an ordinary `dekopon:http@1.0.0` client with a
+//! an owner grants a model a bounded read of it — an ordinary `dekopon:http@1.1.0` client with a
 //! broker-injected, DRN-bound Basic credential, no endpoint of its own, and no authority it did not
 //! receive. It replaces something that was deleted rather than adding something new: `dekopon-run
 //! session list | show | replay` read sessions back from OpenObserve and went with the runner in
@@ -12,7 +12,7 @@
 //! guest can observe it; the host rejects an `authorization` header from a guest by construction
 //! rather than overwriting it.
 //!
-//! Two host imports, both narrow. `dekopon:http/client@1.0.0` is the only way out. `dekopon:clock`
+//! Two host imports, both narrow. `dekopon:http/client@1.1.0` is the only way out. `dekopon:clock`
 //! is read exactly once per `invoke`, because every statement carries an absolute
 //! `start_time`/`end_time` in microseconds and a component has no clock of its own; it is readable
 //! during `invoke` only, and the broker traps a component that reads it from `describe` or
