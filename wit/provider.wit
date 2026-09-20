@@ -5,6 +5,6 @@ package dekopon:openobserve@0.1.0;
 /// `broker` command words.
 world provider {
     include dekopon:provider/provider-cli@0.3.0;
-    import dekopon:http/client@1.0.0;
+    import dekopon:http/client@1.1.0;
     import dekopon:clock/wall@1.0.0;
 }
