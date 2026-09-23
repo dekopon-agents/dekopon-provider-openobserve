@@ -1,92 +1,8 @@
 {
   "apiVersion": "dekopon.dev/provider/v1alpha1",
   "id": "openobserve",
-  "description": "Reads an OpenObserve telemetry store over its _search API: one agent's own turns and tokens, the broker's fleet view, and bounded raw search",
+  "description": "Reads configured OpenObserve telemetry with bounded, generated queries: trace skeletons, agent statistics, and broker fleet activity",
   "capabilities": [
-    {
-      "id": "openobserve.search",
-      "description": "Runs one read-only statement against the store and returns its rows. Returns whatever the statement selects, conversation text included, so it belongs to an operator's own agent",
-      "effect": "read-only",
-      "risk": "Medium",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "format": {
-            "default": "json",
-            "description": "json is one object with a rows array and the store's own column names as row keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a fixed-width text table to read directly. Both carry truncated and omittedRows.",
-            "enum": [
-              "json",
-              "table"
-            ],
-            "type": "string"
-          },
-          "limit": {
-            "default": 100,
-            "description": "Rows to ask the store for.",
-            "maximum": 500,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "maxOutputBytes": {
-            "default": 65536,
-            "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
-            "maximum": 1048576,
-            "minimum": 1024,
-            "type": "integer"
-          },
-          "org": {
-            "default": "default",
-            "description": "The store's organization path segment.",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
-          },
-          "signal": {
-            "description": "Which signal to search. Spans are traces; brokerd's audit records are logs.",
-            "enum": [
-              "traces",
-              "logs"
-            ],
-            "type": "string"
-          },
-          "sinceSeconds": {
-            "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
-            "maximum": 2592000,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "sql": {
-            "description": "One statement, starting with SELECT or a WITH that ends in one; a second statement is refused. Attribute names are folded to letters, digits, and underscore: audit.event is audit_event, usage.input_tokens is usage_input_tokens, decision.allowed is decision_allowed.",
-            "maxLength": 8192,
-            "minLength": 7,
-            "type": "string"
-          },
-          "stream": {
-            "default": "dekopon",
-            "description": "The stream both dekopon daemons export into. stream-name=dekopon routes traces and logs here; spans are not in the default trace stream.",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
-          },
-          "url": {
-            "description": "The store's base URL, with no trailing slash: https://rpi.lan/openobserve. A host outside the grant's allowedHosts is a denied egress, never a leak.",
-            "maxLength": 512,
-            "minLength": 8,
-            "pattern": "^https?://",
-            "type": "string"
-          }
-        },
-        "required": [
-          "url",
-          "sinceSeconds",
-          "signal",
-          "sql"
-        ],
-        "type": "object"
-      }
-    },
     {
       "id": "openobserve.trace",
       "description": "Returns one trace's spans as a projected skeleton: ids, operation, service, kind, status, and timings. Never span events, which is where conversation text lives",
@@ -118,27 +34,11 @@
             "minimum": 1024,
             "type": "integer"
           },
-          "org": {
-            "default": "default",
-            "description": "The store's organization path segment.",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
-          },
           "sinceSeconds": {
             "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
             "maximum": 2592000,
             "minimum": 1,
             "type": "integer"
-          },
-          "stream": {
-            "default": "dekopon",
-            "description": "The stream both dekopon daemons export into. stream-name=dekopon routes traces and logs here; spans are not in the default trace stream.",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
           },
           "traceId": {
             "description": "The 32-hexadecimal-character W3C trace id.",
@@ -146,17 +46,9 @@
             "minLength": 32,
             "pattern": "^[0-9a-fA-F]{32}$",
             "type": "string"
-          },
-          "url": {
-            "description": "The store's base URL, with no trailing slash: https://rpi.lan/openobserve. A host outside the grant's allowedHosts is a denied egress, never a leak.",
-            "maxLength": 512,
-            "minLength": 8,
-            "pattern": "^https?://",
-            "type": "string"
           }
         },
         "required": [
-          "url",
           "sinceSeconds",
           "traceId"
         ],
@@ -194,38 +86,14 @@
             "minimum": 1024,
             "type": "integer"
           },
-          "org": {
-            "default": "default",
-            "description": "The store's organization path segment.",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
-          },
           "sinceSeconds": {
             "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
             "maximum": 2592000,
             "minimum": 1,
             "type": "integer"
-          },
-          "stream": {
-            "default": "dekopon",
-            "description": "The stream both dekopon daemons export into. stream-name=dekopon routes traces and logs here; spans are not in the default trace stream.",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
-          },
-          "url": {
-            "description": "The store's base URL, with no trailing slash: https://rpi.lan/openobserve. A host outside the grant's allowedHosts is a denied egress, never a leak.",
-            "maxLength": 512,
-            "minLength": 8,
-            "pattern": "^https?://",
-            "type": "string"
           }
         },
         "required": [
-          "url",
           "sinceSeconds",
           "agent"
         ],
@@ -256,34 +124,11 @@
             "minimum": 1024,
             "type": "integer"
           },
-          "org": {
-            "default": "default",
-            "description": "The store's organization path segment.",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
-          },
           "sinceSeconds": {
             "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
             "maximum": 2592000,
             "minimum": 1,
             "type": "integer"
-          },
-          "stream": {
-            "default": "dekopon",
-            "description": "The stream both dekopon daemons export into. stream-name=dekopon routes traces and logs here; spans are not in the default trace stream.",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
-          },
-          "url": {
-            "description": "The store's base URL, with no trailing slash: https://rpi.lan/openobserve. A host outside the grant's allowedHosts is a denied egress, never a leak.",
-            "maxLength": 512,
-            "minLength": 8,
-            "pattern": "^https?://",
-            "type": "string"
           },
           "view": {
             "description": "Which fleet view.",
@@ -294,7 +139,6 @@
           }
         },
         "required": [
-          "url",
           "sinceSeconds",
           "view"
         ],
@@ -342,34 +186,11 @@
             "minimum": 1024,
             "type": "integer"
           },
-          "org": {
-            "default": "default",
-            "description": "The store's organization path segment.",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
-          },
           "sinceSeconds": {
             "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
             "maximum": 2592000,
             "minimum": 1,
             "type": "integer"
-          },
-          "stream": {
-            "default": "dekopon",
-            "description": "The stream both dekopon daemons export into. stream-name=dekopon routes traces and logs here; spans are not in the default trace stream.",
-            "maxLength": 64,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
-          },
-          "url": {
-            "description": "The store's base URL, with no trailing slash: https://rpi.lan/openobserve. A host outside the grant's allowedHosts is a denied egress, never a leak.",
-            "maxLength": 512,
-            "minLength": 8,
-            "pattern": "^https?://",
-            "type": "string"
           },
           "view": {
             "description": "Which fleet view.",
@@ -381,7 +202,6 @@
           }
         },
         "required": [
-          "url",
           "sinceSeconds",
           "view"
         ],

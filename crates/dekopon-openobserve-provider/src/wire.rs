@@ -15,9 +15,6 @@ use dekopon_otel_query_core::window::Window;
 use dekopon_provider_http::{Header, Request, Response, method};
 use serde_json::Value;
 
-/// The most bytes of an upstream error body this provider will quote back.
-const ERROR_EXCERPT_BYTES: usize = 240;
-
 /// Builds one `_search` request.
 pub(crate) fn search(
     scope: &Scope,
@@ -45,7 +42,7 @@ pub(crate) fn search(
         QueryError::invalid(format!("the request body would not serialize: {error}"))
     })?;
     let request = Request::new(method::POST, uri)
-        .map_err(|error| QueryError::invalid(error.to_string()))?
+        .map_err(|_error| QueryError::invalid("configured OpenObserve endpoint is invalid"))?
         .with_header(
             Header::text("content-type", "application/json")
                 .map_err(|error| QueryError::invalid(error.to_string()))?,
@@ -77,11 +74,8 @@ pub(crate) fn hits(response: &Response) -> Result<(Vec<Value>, u64), QueryError>
     Ok((rows, total))
 }
 
-/// What went wrong upstream, said once, bounded, and without inventing a cause.
-///
-/// The status is the fact worth carrying — 401 is a credential the owner has to fix, 400 is a
-/// statement the caller has to fix — and the store's own `message` is the only useful detail, so it
-/// is quoted to a fixed ceiling rather than dropped or passed through whole.
+/// The upstream's body can repeat configured destinations or generated SQL, so only the
+/// status and fixed provider-authored hints reach the agent.
 fn describe_failure(response: &Response) -> String {
     let hint = match response.status {
         401 | 403 => " (the injected credential was refused; check the OpenObserve user's role)",
@@ -92,22 +86,7 @@ fn describe_failure(response: &Response) -> String {
         429 => " (the store is rate limiting)",
         _ => "",
     };
-    let detail = serde_json::from_slice::<Value>(&response.body)
-        .ok()
-        .and_then(|body| {
-            ["message", "error", "error_detail"]
-                .into_iter()
-                .find_map(|key| body.get(key).and_then(Value::as_str).map(str::to_owned))
-        })
-        .map(|message| {
-            let mut excerpt: String = message.chars().take(ERROR_EXCERPT_BYTES).collect();
-            if message.chars().count() > ERROR_EXCERPT_BYTES {
-                excerpt.push('…');
-            }
-            format!(": {excerpt}")
-        })
-        .unwrap_or_default();
-    format!("the store answered {}{hint}{detail}", response.status)
+    format!("the store answered {}{hint}", response.status)
 }
 
 #[cfg(test)]
@@ -180,7 +159,7 @@ mod tests {
         assert_eq!(total, 0);
     }
 
-    /// A refusal says the status, what an owner would change, and the store's own message once.
+    /// A refusal says the status and a fixed hint but never repeats the store's body.
     #[test]
     fn a_refusal_names_the_status_and_the_thing_to_fix() {
         let unauthorized = Response {
@@ -192,7 +171,7 @@ mod tests {
         assert_eq!(error.code(), "upstream-failure");
         assert!(error.message().contains("401"), "{error}");
         assert!(error.message().contains("credential"), "{error}");
-        assert!(error.message().contains("Unauthorized Access"), "{error}");
+        assert!(!error.message().contains("Unauthorized Access"), "{error}");
 
         let bad_sql = Response {
             status: 400,
@@ -201,10 +180,11 @@ mod tests {
                 .to_vec(),
         };
         let error = hits(&bad_sql).expect_err("refused");
-        assert!(error.message().contains("audit_event"), "{error}");
+        assert!(error.message().contains("400"), "{error}");
+        assert!(!error.message().contains("parser error"), "{error}");
     }
 
-    /// A store that answers with an unbounded body does not get to write the model's context.
+    /// A store error body cannot write to the model's context.
     #[test]
     fn an_upstream_message_is_quoted_to_a_ceiling() {
         let body = serde_json::json!({"message": "x".repeat(10_000)});
@@ -215,7 +195,7 @@ mod tests {
         };
         let error = hits(&response).expect_err("refused");
         assert!(error.message().len() < 512, "{}", error.message().len());
-        assert!(error.message().ends_with('…'), "{error}");
+        assert!(!error.message().contains("xxxxxxxx"), "{error}");
     }
 
     #[test]

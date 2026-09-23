@@ -10,4 +10,4 @@ permissions:
 
 jobs:
   ci:
-    uses: dekopon-agents/provider-workflows/.github/workflows/ci.yml@4cb9276ca166bee05c04e4c40ad9bca4b1f1065c # v3
+    uses: dekopon-agents/provider-workflows/.github/workflows/ci.yml@a0177e7fbaef1fce8e17b74e0e53460561d14cde # settings WIT pin
