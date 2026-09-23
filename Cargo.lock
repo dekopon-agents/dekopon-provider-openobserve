@@ -83,7 +83,7 @@ dependencies = [
 
 [[package]]
 name = "dekopon-openobserve-provider"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "dekopon-otel-query-core",
  "dekopon-provider-clock",
@@ -96,7 +96,7 @@ dependencies = [
 
 [[package]]
 name = "dekopon-otel-query-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "dekopon-provider-http",
  "dekopon-provider-sdk",
