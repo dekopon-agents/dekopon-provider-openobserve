@@ -8,19 +8,16 @@
 //! a capability the caller was not granted is a denial, not an escalation.
 //!
 //! The grammar lives in the backend-neutral crate because #250 put it there: `agent` and `broker`
-//! are the same words against any store that speaks dekopon's record schema, and the raw word is
-//! the only one whose *name* is the backend's. So the raw tree takes its name at build time and the
-//! capability ids arrive as [`Capabilities`], which a backend builds from its own provider id.
+//! are the same words against any store that speaks dekopon's record schema, and the trace word
+//! takes the backend's name. Capability ids arrive as [`Capabilities`].
 
 use dekopon_provider_sdk::clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 use dekopon_provider_sdk::{CapabilityId, CommandInvocation, CommandRun, ProviderError, cli};
 use serde_json::{Value, json};
 
-use crate::query::{
-    BrokerView, DEFAULT_LIMIT, DEFAULT_ORG, DEFAULT_STREAM, Format, MAX_LIMIT, QueryError, Scope,
-    Signal, UsageGrouping, check_statement,
-};
-use crate::window::MAX_WINDOW_SECONDS;
+use crate::fit::{DEFAULT_MAX_OUTPUT_BYTES, MAX_OUTPUT_BYTES_CEILING, MIN_OUTPUT_BYTES};
+use crate::query::{BrokerView, DEFAULT_LIMIT, MAX_LIMIT, UsageGrouping};
+use crate::window::{MAX_WINDOW_SECONDS, parse_since};
 
 /// The capability ids one backend's words propose.
 ///
@@ -29,8 +26,6 @@ use crate::window::MAX_WINDOW_SECONDS;
 /// audit record names which store was read.
 #[derive(Clone, Debug)]
 pub struct Capabilities {
-    /// `<backend> sql` and `<backend> search`.
-    pub search: CapabilityId,
     /// `<backend> trace`.
     pub trace: CapabilityId,
     /// `agent stats`.
@@ -42,7 +37,7 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    /// The five ids for one provider id.
+    /// The four bounded ids for one provider id.
     ///
     /// # Panics
     ///
@@ -56,7 +51,6 @@ impl Capabilities {
                 .expect("a valid provider id yields valid capability ids")
         };
         Self {
-            search: id("search"),
             trace: id("trace"),
             agent_stats: id("agent-stats"),
             broker_providers: id("broker-providers"),
@@ -66,9 +60,8 @@ impl Capabilities {
 
     /// Every id, in manifest order.
     #[must_use]
-    pub fn all(&self) -> [&CapabilityId; 5] {
+    pub fn all(&self) -> [&CapabilityId; 4] {
         [
-            &self.search,
             &self.trace,
             &self.agent_stats,
             &self.broker_providers,
@@ -90,14 +83,14 @@ pub const BROKER_WORD: &str = "broker";
 /// (`dekopon-broker-host/src/lib.rs`, `run_command(word, argv, stdin)`). A provider with one word
 /// never notices; a provider with three has to recover the word from the argv.
 ///
-/// It recovers cleanly because the three vocabularies are disjoint by construction: `sql`, `search`
-/// and `trace` belong to the raw word, `stats` to `agent`, and `providers`, `usage` and `denials`
+/// It recovers cleanly because the three vocabularies are disjoint by construction: `trace`
+/// belongs to the backend word, `stats` to `agent`, and `providers`, `usage` and `denials`
 /// to `broker`. What cannot be recovered is a bare `--help` or an empty argv, which are identical
 /// for all three — so those render one overview naming every word and every action, which is more
 /// useful than one word's page chosen by a coin flip.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Route {
-    /// `sql`, `search`, `trace`.
+    /// `trace`.
     Raw,
     /// `stats`.
     Agent,
@@ -111,7 +104,7 @@ pub enum Route {
 #[must_use]
 pub fn route(argv: &[String]) -> Route {
     match argv.first().map(String::as_str) {
-        Some("sql" | "search" | "trace") => Route::Raw,
+        Some("trace") => Route::Raw,
         Some("stats") => Route::Agent,
         Some("providers" | "usage" | "denials") => Route::Broker,
         _ => Route::Overview,
@@ -126,19 +119,17 @@ pub fn overview(raw_word: &str, about: &str) -> String {
          This provider contributes three command words. The component is handed one argv with no \n\
          word attached, so `--help` on its own cannot tell them apart and renders this page; name \n\
          an action to reach that word's own help.\n\n\
-         \x20 {raw_word} sql --url <URL> --since <DURATION> [--type traces|logs] [--limit <N>] <SQL>\n\
-         \x20 {raw_word} search --url <URL> --since <DURATION> [--where <PREDICATE>] [--select <COLUMNS>]\n\
-         \x20 {raw_word} trace --url <URL> --since <DURATION> <TRACE-ID>\n\
-         \x20 agent stats --url <URL> --since <DURATION> --agent <ID>\n\
-         \x20 broker providers --url <URL> --since <DURATION>\n\
-         \x20 broker usage --url <URL> --since <DURATION> [--by provider|capability|agent]\n\
-         \x20 broker denials --url <URL> --since <DURATION>\n\n\
+         \x20 {raw_word} trace --since <DURATION> <TRACE-ID>\n\
+         \x20 agent stats --since <DURATION> --agent <ID>\n\
+         \x20 broker providers --since <DURATION>\n\
+         \x20 broker usage --since <DURATION> [--by provider|capability|agent]\n\
+         \x20 broker denials --since <DURATION>\n\n\
          Every word takes --format json|table. json is the default and is one object with a rows\n\
          array, so `<word> … | jq '.rows[] | .duration_ms'` works with no wrapper; row keys are the\n\
          store's own column names. table renders a fixed-width text table instead.\n\n\
          --since is capped at 30d and --limit at 500. Attribute names are folded to letters, digits\n\
          and underscore: audit.event is the column audit_event.\n\n\
-         Try `{raw_word} sql --help`, `agent stats --help`, or `broker usage --help`.\n"
+         Try `{raw_word} trace --help`, `agent stats --help`, or `broker usage --help`.\n"
     )
 }
 
@@ -147,27 +138,6 @@ const SINCE_HELP: &str = "How far back to look: 30m, 24h, 7d (units s, m, h, d).
 
 fn scope_arguments(command: Command) -> Command {
     command
-        .arg(
-            Arg::new("url")
-                .long("url")
-                .value_name("URL")
-                .required(true)
-                .help("The store's base URL, e.g. https://rpi.lan/openobserve"),
-        )
-        .arg(
-            Arg::new("org")
-                .long("org")
-                .value_name("ORG")
-                .default_value(DEFAULT_ORG)
-                .help("The store's organization"),
-        )
-        .arg(
-            Arg::new("stream")
-                .long("stream")
-                .value_name("STREAM")
-                .default_value(DEFAULT_STREAM)
-                .help("The stream both dekopon daemons export into"),
-        )
         .arg(
             Arg::new("since")
                 .long("since")
@@ -214,34 +184,6 @@ fn limit_argument(command: Command) -> Command {
 /// Builds the raw word's clap tree under the backend's own name.
 #[must_use]
 pub fn raw_command(word: &'static str, about: &'static str) -> Command {
-    let mut sql = scope_arguments(
-        Command::new("sql")
-            .about("Run one read-only statement and return its rows")
-            .arg(Arg::new("statement").value_name("SQL").required(true).help(
-                "One statement, starting with SELECT (or a WITH that ends in one). \
-                         Attribute names are folded: audit.event is the column audit_event",
-            )),
-    );
-    sql = limit_argument(sql).arg(signal_argument());
-
-    let mut search = scope_arguments(
-        Command::new("search")
-            .about("Assemble one filtered SELECT over the stream and return its rows")
-            .arg(
-                Arg::new("where")
-                    .long("where")
-                    .value_name("PREDICATE")
-                    .help("A SQL predicate over folded column names, e.g. operation_name = 'gateway.session'"),
-            )
-            .arg(
-                Arg::new("select")
-                    .long("select")
-                    .value_name("COLUMNS")
-                    .help("Comma-separated columns to project. Defaults to every column"),
-            ),
-    );
-    search = limit_argument(search).arg(signal_argument());
-
     let mut trace = scope_arguments(Command::new("trace").about(
         "Return one trace's spans, projected: no span events, no conversation text, no paths",
     ).arg(
@@ -257,18 +199,7 @@ pub fn raw_command(word: &'static str, about: &'static str) -> Command {
         .about(about)
         .subcommand_required(true)
         .arg_required_else_help(false)
-        .subcommand(sql)
-        .subcommand(search)
         .subcommand(trace)
-}
-
-fn signal_argument() -> Arg {
-    Arg::new("type")
-        .long("type")
-        .value_name("SIGNAL")
-        .value_parser(["traces", "logs"])
-        .default_value("traces")
-        .help("Which signal to search; spans or log records")
 }
 
 /// Builds the `agent` word's clap tree.
@@ -340,8 +271,7 @@ pub fn broker_command() -> Command {
 ///
 /// # Errors
 ///
-/// Returns the decline when the argv parsed but named something this provider refuses — a window
-/// past the cap, a statement that is not a read, a malformed URL.
+/// Returns a usage refusal for a window outside the cap or a malformed trace ID.
 pub fn run_raw(
     word: &'static str,
     about: &'static str,
@@ -349,8 +279,8 @@ pub fn run_raw(
     argv: &[String],
     stdin: Option<&str>,
 ) -> Result<CommandRun, ProviderError> {
-    cli::run_command(raw_command(word, about), argv, stdin, |matches, stdin| {
-        dispatch_raw(capabilities, &matches, stdin)
+    cli::run_command(raw_command(word, about), argv, stdin, |matches, _stdin| {
+        dispatch_raw(capabilities, &matches)
     })
 }
 
@@ -427,117 +357,41 @@ pub fn run_broker(
 fn dispatch_raw(
     capabilities: &Capabilities,
     matches: &ArgMatches,
-    _stdin: Option<&str>,
 ) -> Result<CommandInvocation, ProviderError> {
     let (name, sub) = matches
         .subcommand()
         .ok_or_else(|| usage("no action was named"))?;
-    let scope = scope_from(sub)?;
-    match name {
-        "sql" => {
-            let statement = string(sub, "statement").unwrap_or_default();
-            let sql = check_statement(&statement).map_err(decline)?;
-            Ok(CommandInvocation {
-                capability: capabilities.search.clone(),
-                input: merge(
-                    scope,
-                    json!({"signal": signal(sub), "sql": sql, "limit": limit(sub)}),
-                ),
-                secret_use: None,
-            })
-        }
-        "search" => {
-            let sql = assemble(
-                &string(sub, "stream").unwrap_or_else(|| DEFAULT_STREAM.to_owned()),
-                string(sub, "select").as_deref(),
-                string(sub, "where").as_deref(),
-                limit(sub),
-            )
-            .map_err(decline)?;
-            Ok(CommandInvocation {
-                capability: capabilities.search.clone(),
-                input: merge(
-                    scope,
-                    json!({"signal": signal(sub), "sql": sql, "limit": limit(sub)}),
-                ),
-                secret_use: None,
-            })
-        }
-        "trace" => Ok(CommandInvocation {
-            capability: capabilities.trace.clone(),
-            input: merge(
-                scope,
-                json!({
-                    "traceId": string(sub, "trace-id").unwrap_or_default(),
-                    "limit": limit(sub),
-                }),
-            ),
-            secret_use: None,
-        }),
-        other => Err(usage(format!("unknown action {other}"))),
+    if name != "trace" {
+        return Err(usage(format!("unknown action {name}")));
     }
-}
-
-/// Assembles `search`'s statement, which is the only SQL this provider writes for a caller.
-///
-/// The predicate is passed through as the caller wrote it — this is the Medium-risk capability, and
-/// a predicate parser is a non-goal — but the projection is checked, because a column list is a
-/// place a second statement would otherwise hide.
-fn assemble(
-    stream: &str,
-    select: Option<&str>,
-    predicate: Option<&str>,
-    limit: u32,
-) -> Result<String, QueryError> {
-    let projection = match select {
-        None => "*".to_owned(),
-        Some(columns) => {
-            let names: Vec<&str> = columns.split(',').map(str::trim).collect();
-            for name in &names {
-                if name.is_empty()
-                    || !name
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-                {
-                    return Err(QueryError::invalid(format!(
-                        "--select {name}: expected a column name of letters, digits, and underscore"
-                    )));
-                }
-            }
-            names.join(", ")
-        }
-    };
-    let mut sql = format!("SELECT {projection} FROM \"{stream}\"");
-    if let Some(predicate) = predicate.map(str::trim).filter(|value| !value.is_empty()) {
-        if predicate.contains(';') {
-            return Err(QueryError::invalid(
-                "--where must be one predicate; `;` is refused",
-            ));
-        }
-        sql.push_str(" WHERE ");
-        sql.push_str(predicate);
-    }
-    sql.push_str(&format!(" ORDER BY _timestamp DESC LIMIT {limit}"));
-    check_statement(&sql)
+    Ok(CommandInvocation {
+        capability: capabilities.trace.clone(),
+        input: merge(
+            scope_from(sub)?,
+            json!({
+                "traceId": string(sub, "trace-id").unwrap_or_default(),
+                "limit": limit(sub),
+            }),
+        ),
+        secret_use: None,
+    })
 }
 
 fn scope_from(matches: &ArgMatches) -> Result<Value, ProviderError> {
-    let scope = Scope::from_flags(
-        string(matches, "url").unwrap_or_default(),
-        string(matches, "org").unwrap_or_else(|| DEFAULT_ORG.to_owned()),
-        string(matches, "stream").unwrap_or_else(|| DEFAULT_STREAM.to_owned()),
-        &string(matches, "since").unwrap_or_default(),
-        matches
-            .get_one::<u64>("max-output-bytes")
-            .and_then(|value| usize::try_from(*value).ok())
-            .unwrap_or(crate::fit::DEFAULT_MAX_OUTPUT_BYTES),
-        match string(matches, "format").as_deref() {
-            Some("table") => Format::Table,
-            _ => Format::Json,
-        },
-    )
-    .map_err(decline)?;
-    serde_json::to_value(scope).map_err(|error| usage(error.to_string()))
+    let since_seconds = parse_since(&string(matches, "since").unwrap_or_default())
+        .map_err(|error| usage(error.to_string()))?;
+    let max_output_bytes = matches
+        .get_one::<u64>("max-output-bytes")
+        .and_then(|value| usize::try_from(*value).ok())
+        .unwrap_or(DEFAULT_MAX_OUTPUT_BYTES);
+    if !(MIN_OUTPUT_BYTES..=MAX_OUTPUT_BYTES_CEILING).contains(&max_output_bytes) {
+        return Err(usage("max-output-bytes is outside the provider's bounds"));
+    }
+    Ok(json!({
+        "sinceSeconds": since_seconds,
+        "maxOutputBytes": max_output_bytes,
+        "format": string(matches, "format").unwrap_or_else(|| "json".to_owned()),
+    }))
 }
 
 fn merge(mut scope: Value, extra: Value) -> Value {
@@ -560,19 +414,8 @@ fn limit(matches: &ArgMatches) -> u32 {
         .unwrap_or(DEFAULT_LIMIT)
 }
 
-fn signal(matches: &ArgMatches) -> Signal {
-    match string(matches, "type").as_deref() {
-        Some("logs") => Signal::Logs,
-        _ => Signal::Traces,
-    }
-}
-
 fn usage(message: impl std::fmt::Display) -> ProviderError {
     ProviderError::new("usage", message.to_string())
-}
-
-fn decline(error: QueryError) -> ProviderError {
-    ProviderError::new("usage", error.message().to_owned())
 }
 
 /// The `--since` cap, as `--help` states it, for a backend's own documentation tests.
@@ -585,298 +428,110 @@ pub fn window_cap_seconds() -> u64 {
 mod tests {
     use dekopon_provider_sdk::{CommandInvocation, CommandRun};
 
-    use super::{Capabilities, assemble, run_agent, run_broker, run_raw};
+    use super::{Capabilities, Route, overview, route, run_agent, run_broker, run_raw};
 
-    const WORD: &str = "openobserve";
-    const ABOUT: &str = "Query an OpenObserve telemetry store";
-
-    fn capabilities() -> Capabilities {
+    fn ids() -> Capabilities {
         Capabilities::for_provider("openobserve")
     }
-
     fn argv(words: &[&str]) -> Vec<String> {
         words.iter().map(|word| (*word).to_owned()).collect()
     }
-
-    fn rendered(run: CommandRun) -> (String, String, u8) {
-        match run {
-            CommandRun::Rendered {
-                stdout,
-                stderr,
-                status,
-            } => (stdout, stderr, status),
-            other => panic!("expected rendered text, got {other:?}"),
-        }
-    }
-
-    fn proposal(run: CommandRun) -> CommandInvocation {
+    fn proposed(run: CommandRun) -> CommandInvocation {
         match run {
             CommandRun::Proposal(invocation) => invocation,
-            other => panic!("expected a proposal, got {other:?}"),
+            other => panic!("unexpected {other:?}"),
         }
-    }
-
-    fn raw(words: &[&str]) -> CommandRun {
-        run_raw(WORD, ABOUT, &capabilities(), &argv(words), None)
-            .expect("clap answers are rendered")
     }
 
     #[test]
-    fn the_five_capability_ids_follow_the_provider_id() {
-        let ids: Vec<String> = capabilities()
-            .all()
-            .iter()
-            .map(|id| id.as_str().to_owned())
-            .collect();
+    fn only_four_generated_capabilities_are_declared() {
+        let ids = ids();
         assert_eq!(
-            ids,
+            ids.all().map(|id| id.as_str().to_owned()),
             [
-                "openobserve.search",
                 "openobserve.trace",
                 "openobserve.agent-stats",
                 "openobserve.broker-providers",
                 "openobserve.broker-usage",
             ]
         );
-        assert_eq!(
-            Capabilities::for_provider("quickwit").agent_stats.as_str(),
-            "quickwit.agent-stats"
-        );
+        assert_eq!(route(&argv(&["trace"])), Route::Raw);
+        assert_eq!(route(&argv(&["sql"])), Route::Overview);
+        assert_eq!(route(&argv(&["search"])), Route::Overview);
     }
 
     #[test]
-    fn help_renders_on_stdout_at_status_zero_for_every_word() {
-        let (stdout, stderr, status) = rendered(raw(&["--help"]));
-        assert_eq!(status, 0);
-        assert!(stdout.contains("Usage: openobserve <COMMAND>"), "{stdout}");
-        for action in ["sql", "search", "trace"] {
-            assert!(stdout.contains(action), "{stdout}");
+    fn model_facing_help_and_commands_have_no_sql_or_destination_controls() {
+        let help = overview("openobserve", "Telemetry");
+        for forbidden in [
+            " sql ", " search ", "--url", "--org", "--stream", "--where", "--select",
+        ] {
+            assert!(!help.contains(forbidden), "{forbidden}");
         }
-        assert!(stderr.is_empty());
-
-        let (stdout, _, status) = rendered(
-            run_agent(&capabilities(), &argv(&["stats", "--help"]), None).expect("rendered"),
-        );
-        assert_eq!(status, 0);
-        assert!(stdout.contains("Usage: agent stats"), "{stdout}");
-        // The cap is on the help page, which is where a model learns it without spending a call.
-        assert!(stdout.contains("Capped at 30d"), "{stdout}");
-
-        let (stdout, _, status) =
-            rendered(run_broker(&capabilities(), &argv(&["--help"]), None).expect("rendered"));
-        assert_eq!(status, 0);
-        for action in ["providers", "usage", "denials"] {
-            assert!(stdout.contains(action), "{stdout}");
+        for action in ["sql", "search"] {
+            let run = run_raw(
+                "openobserve",
+                "Telemetry",
+                &ids(),
+                &argv(&[action, "--since", "1h"]),
+                None,
+            )
+            .unwrap();
+            assert!(matches!(run, CommandRun::Rendered { .. }), "{action}");
         }
-    }
-
-    #[test]
-    fn a_well_formed_argv_proposes_the_capability_the_manifest_declares() {
-        let invocation = proposal(raw(&[
-            "sql",
-            "--url",
-            "https://rpi.lan/openobserve",
-            "--since",
-            "24h",
-            "--limit",
-            "50",
-            "SELECT trace_id FROM \"dekopon\"",
-        ]));
-        assert_eq!(invocation.capability.as_str(), "openobserve.search");
-        assert_eq!(invocation.input["url"], "https://rpi.lan/openobserve");
-        assert_eq!(invocation.input["org"], "default");
-        assert_eq!(invocation.input["stream"], "dekopon");
-        assert_eq!(invocation.input["sinceSeconds"], 86_400);
-        assert_eq!(invocation.input["format"], "json");
-        assert_eq!(invocation.input["signal"], "traces");
-        assert_eq!(invocation.input["limit"], 50);
-        assert_eq!(invocation.input["sql"], "SELECT trace_id FROM \"dekopon\"");
-
-        let invocation = proposal(
-            run_agent(
-                &capabilities(),
-                &argv(&[
-                    "stats",
-                    "--url",
-                    "https://rpi.lan/openobserve",
-                    "--agent",
-                    "reviewer",
-                    "--since",
-                    "7d",
-                ]),
-                None,
-            )
-            .expect("a proposal"),
-        );
-        assert_eq!(invocation.capability.as_str(), "openobserve.agent-stats");
-        assert_eq!(invocation.input["agent"], "reviewer");
-        assert_eq!(invocation.input["sinceSeconds"], 604_800);
-
-        let invocation = proposal(
-            run_broker(
-                &capabilities(),
-                &argv(&[
-                    "usage",
-                    "--url",
-                    "https://rpi.lan/openobserve",
-                    "--since",
-                    "24h",
-                    "--by",
-                    "agent",
-                ]),
-                None,
-            )
-            .expect("a proposal"),
-        );
-        assert_eq!(invocation.capability.as_str(), "openobserve.broker-usage");
-        assert_eq!(invocation.input["view"], "usage");
-        assert_eq!(invocation.input["by"], "agent");
-
-        let invocation = proposal(
-            run_broker(
-                &capabilities(),
-                &argv(&[
-                    "denials",
-                    "--url",
-                    "https://rpi.lan/openobserve",
-                    "--since",
-                    "24h",
-                ]),
-                None,
-            )
-            .expect("a proposal"),
-        );
-        assert_eq!(invocation.capability.as_str(), "openobserve.broker-usage");
-        assert_eq!(invocation.input["view"], "denials");
-    }
-
-    /// The window cap is enforced in the word, so a 90-day request never becomes a proposal, never
-    /// reaches Cedar, and never spends a request.
-    #[test]
-    fn a_window_past_the_cap_is_a_usage_error_not_a_proposal() {
-        let error = run_raw(
-            WORD,
-            ABOUT,
-            &capabilities(),
+        let run = run_raw(
+            "openobserve",
+            "Telemetry",
+            &ids(),
             &argv(&[
-                "sql",
-                "--url",
-                "https://rpi.lan/openobserve",
+                "trace",
                 "--since",
-                "90d",
-                "SELECT 1",
+                "1h",
+                "--url",
+                "https://elsewhere.example",
+                "0af7651916cd43dd8448eb211c80319c",
             ]),
             None,
         )
-        .expect_err("the cap holds");
-        assert_eq!(error.code(), "usage");
-        assert!(error.message().contains("30d"), "{}", error.message());
+        .unwrap();
+        assert!(matches!(run, CommandRun::Rendered { .. }));
     }
 
     #[test]
-    fn usage_errors_render_on_stderr_at_status_two() {
-        for words in [
-            &[][..],
-            &["bogus"][..],
-            &["sql"][..],
-            &["sql", "--url", "https://rpi.lan/openobserve", "SELECT 1"][..],
-            &["sql", "--since", "24h", "SELECT 1"][..],
-            &[
-                "sql",
-                "--url",
-                "https://rpi.lan/openobserve",
-                "--since",
-                "24h",
-                "--limit",
-                "501",
-                "SELECT 1",
-            ][..],
-            &[
-                "sql",
-                "--url",
-                "https://rpi.lan/openobserve",
-                "--since",
-                "24h",
-                "--type",
-                "metrics",
-                "SELECT 1",
-            ][..],
-        ] {
-            let (stdout, stderr, status) = rendered(raw(words));
-            assert_eq!(status, 2, "{words:?}");
-            assert!(stdout.is_empty(), "{words:?}: {stdout}");
-            assert!(!stderr.is_empty(), "{words:?}");
-        }
-    }
-
-    /// A statement that is not a read is refused in the word, before anything is proposed.
-    #[test]
-    fn a_write_statement_never_becomes_a_proposal() {
-        for statement in ["DELETE FROM \"dekopon\"", "SELECT 1; DROP TABLE x"] {
-            let error = run_raw(
-                WORD,
-                ABOUT,
-                &capabilities(),
-                &argv(&[
-                    "sql",
-                    "--url",
-                    "https://rpi.lan/openobserve",
-                    "--since",
-                    "24h",
-                    statement,
-                ]),
+    fn generated_proposals_have_only_bounded_agent_fields() {
+        let trace = proposed(
+            run_raw(
+                "openobserve",
+                "Telemetry",
+                &ids(),
+                &argv(&["trace", "--since", "1h", "0af7651916cd43dd8448eb211c80319c"]),
                 None,
             )
-            .expect_err("refused");
-            assert_eq!(error.code(), "usage", "{statement}");
-        }
-    }
-
-    #[test]
-    fn search_assembles_exactly_one_ordered_bounded_statement() {
-        assert_eq!(
-            assemble("dekopon", None, None, 100).expect("assembled"),
-            "SELECT * FROM \"dekopon\" ORDER BY _timestamp DESC LIMIT 100"
+            .unwrap(),
         );
-        assert_eq!(
-            assemble(
-                "dekopon",
-                Some("trace_id, operation_name"),
-                Some("operation_name = 'gateway.session'"),
-                5
+        assert_eq!(trace.capability.as_str(), "openobserve.trace");
+        assert_eq!(trace.input["sinceSeconds"], 3600);
+        assert!(trace.input.get("url").is_none());
+        assert!(trace.input.get("org").is_none());
+        assert!(trace.input.get("stream").is_none());
+        let stats = proposed(
+            run_agent(
+                &ids(),
+                &argv(&["stats", "--since", "1h", "--agent", "xavier"]),
+                None,
             )
-            .expect("assembled"),
-            "SELECT trace_id, operation_name FROM \"dekopon\" WHERE operation_name = \
-             'gateway.session' ORDER BY _timestamp DESC LIMIT 5"
+            .unwrap(),
         );
-        for select in ["trace_id; DROP TABLE x", "trace_id, (SELECT 1)", ""] {
-            assert!(
-                assemble("dekopon", Some(select), None, 5).is_err(),
-                "{select} was accepted"
-            );
-        }
-        assert!(assemble("dekopon", None, Some("a = 1; DELETE FROM x"), 5).is_err());
-    }
-
-    /// The proposal a word makes is the input a direct `cap` call would send, so the two paths
-    /// cannot drift: the keys are camelCase on both.
-    #[test]
-    fn every_proposal_carries_only_camel_case_keys() {
-        let invocation = proposal(raw(&[
-            "trace",
-            "--url",
-            "https://rpi.lan/openobserve",
-            "--since",
-            "1h",
-            "0af7651916cd43dd8448eb211c80319c",
-        ]));
-        assert_eq!(invocation.capability.as_str(), "openobserve.trace");
-        assert_eq!(
-            invocation.input["traceId"],
-            "0af7651916cd43dd8448eb211c80319c"
+        assert_eq!(stats.input["agent"], "xavier");
+        let usage = proposed(
+            run_broker(
+                &ids(),
+                &argv(&["usage", "--since", "1h", "--by", "capability"]),
+                None,
+            )
+            .unwrap(),
         );
-        for key in invocation.input.as_object().expect("an object").keys() {
-            assert!(!key.contains('_'), "{key} is snake_case");
-        }
+        assert_eq!(usage.input["by"], "capability");
+        assert_eq!(usage.input["view"], "usage");
     }
 }

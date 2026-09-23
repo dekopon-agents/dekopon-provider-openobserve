@@ -1,4 +1,4 @@
-//! A bounded, read-only OpenObserve client for Dekopon: three command words over five capabilities.
+//! A bounded, read-only OpenObserve client for Dekopon: three command words over four capabilities.
 //!
 //! Goal 2 says everything that happened is in the operator's telemetry store. This component is how
 //! an owner grants a model a bounded read of it — an ordinary `dekopon:http@1.1.0` client with a
@@ -12,22 +12,19 @@
 //! guest can observe it; the host rejects an `authorization` header from a guest by construction
 //! rather than overwriting it.
 //!
-//! Two host imports, both narrow. `dekopon:http/client@1.1.0` is the only way out. `dekopon:clock`
-//! is read exactly once per `invoke`, because every statement carries an absolute
-//! `start_time`/`end_time` in microseconds and a component has no clock of its own; it is readable
-//! during `invoke` only, and the broker traps a component that reads it from `describe` or
-//! `run-command`.
+//! Three narrow host imports. `dekopon:http/client@1.1.0` is the only way out. The broker clock
+//! is read once per invoke to bound every statement with the same absolute microsecond window.
+//! `dekopon:settings/config@0.1.0` supplies the owner endpoint, organization and stream only
+//! during invoke. The broker traps reads of either from `describe` or `run-command`.
 //!
 //! Unlike dekopon's own crates this guest cannot `#![forbid(unsafe_code)]`: the generated component
-//! bindings contain `unsafe` by construction. No hand-written code in this component is unsafe, and
-//! `scripts/validate.sh` fails the build if any appears.
+//! bindings contain `unsafe` by construction. No hand-written code in this component is unsafe.
 
-use dekopon_otel_query_core::query::{
-    AgentStatsQuery, BrokerQuery, Query, SearchQuery, TraceQuery,
-};
+use dekopon_otel_query_core::query::{AgentStatsQuery, BrokerQuery, Query, TraceQuery};
 use dekopon_otel_query_core::{Backend, Capabilities, QueryError};
 use dekopon_provider_http::{HttpError, Request, Response};
 use dekopon_provider_sdk::{CapabilityId, CommandRun, Provider, ProviderError, ProviderManifest};
+use serde::Deserialize;
 use serde_json::Value;
 
 mod backend;
@@ -36,10 +33,10 @@ mod wire;
 
 /// The provider id, which every capability id is prefixed with.
 pub(crate) const PROVIDER_ID: &str = "openobserve";
-/// The raw-search command word, named after the backend.
+/// The backend-specific trace command word.
 ///
 /// #250's Backends section decided this: command words are global per broker and a duplicate fails
-/// startup, so naming the raw word after the store lets an operator load OpenObserve for dekopon's
+/// startup, so naming this word after the store lets an operator load OpenObserve for dekopon's
 /// own telemetry and Quickwit for someone else's, side by side. `agent` and `broker` stay neutral
 /// and are claimed only by whichever provider speaks dekopon's record schema.
 pub(crate) const RAW_WORD: &str = "openobserve";
@@ -48,7 +45,7 @@ pub(crate) const AGENT_WORD: &str = dekopon_otel_query_core::grammar::AGENT_WORD
 /// The neutral word for the fleet view.
 pub(crate) const BROKER_WORD: &str = dekopon_otel_query_core::grammar::BROKER_WORD;
 
-const ABOUT: &str = "Query an OpenObserve telemetry store: raw SQL, or one trace's spans";
+const ABOUT: &str = "Query configured OpenObserve telemetry with bounded generated statements";
 
 mod bindings {
     wit_bindgen::generate!({
@@ -59,7 +56,7 @@ mod bindings {
     });
 }
 
-/// The five capability ids this provider declares.
+/// The four capability ids this provider declares.
 pub(crate) fn capabilities() -> Capabilities {
     Capabilities::for_provider(PROVIDER_ID)
 }
@@ -76,9 +73,15 @@ impl Provider for OpenObserveProvider {
         // One clock read per invocation, taken here rather than inside the planner: every statement
         // in one `agent stats` must bound the same window, and a planner that read the clock per
         // step would widen it between the sessions query and the turns query.
-        invoke_with(
+        let settings = bindings::dekopon::settings::config::get()
+            .ok_or_else(|| ProviderError::new("invalid-input", "OpenObserve is not configured"))?;
+        let settings: OwnerSettings = serde_json::from_str(&settings).map_err(|_error| {
+            ProviderError::new("invalid-input", "OpenObserve settings are invalid")
+        })?;
+        invoke_with_settings(
             capability,
             input,
+            &settings,
             dekopon_provider_clock::now_unix_millis().saturating_mul(1_000),
             dekopon_provider_http::send,
         )
@@ -128,6 +131,33 @@ fn dispatch(
 /// Taking both as parameters is what lets every test assert the exact bytes of every request and
 /// the exact projection of every response with no network, no host, and no wall clock: the seam is
 /// the one the component uses, so what the tests exercise is what ships.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OwnerSettings {
+    url: String,
+    org: String,
+    stream: String,
+}
+
+fn invoke_with_settings<F>(
+    capability: &CapabilityId,
+    input: Value,
+    settings: &OwnerSettings,
+    now_us: u64,
+    send: F,
+) -> Result<Value, ProviderError>
+where
+    F: FnMut(Request) -> Result<Response, HttpError>,
+{
+    let mut query = parse(capability, input, settings).map_err(provider_error)?;
+    query.validate().map_err(provider_error)?;
+    let rendering = query.scope().format;
+    let answer = dekopon_otel_query_core::run(&backend::OpenObserve::at(now_us), &query, send)
+        .map_err(provider_error)?;
+    Ok(dekopon_otel_query_core::output::format(answer, rendering))
+}
+
+#[cfg(test)]
 fn invoke_with<F>(
     capability: &CapabilityId,
     input: Value,
@@ -137,24 +167,58 @@ fn invoke_with<F>(
 where
     F: FnMut(Request) -> Result<Response, HttpError>,
 {
-    let mut query = parse(capability, input).map_err(provider_error)?;
-    query.validate().map_err(provider_error)?;
-    let rendering = query.scope().format;
-    let answer = dekopon_otel_query_core::run(&backend::OpenObserve::at(now_us), &query, send)
-        .map_err(provider_error)?;
-    Ok(dekopon_otel_query_core::output::format(answer, rendering))
+    invoke_with_settings(
+        capability,
+        input,
+        &OwnerSettings {
+            url: "http://rpi.lan/openobserve".to_owned(),
+            org: "default".to_owned(),
+            stream: "dekopon".to_owned(),
+        },
+        now_us,
+        send,
+    )
 }
 
 /// Parses the input object into the typed query its capability names.
-fn parse(capability: &CapabilityId, input: Value) -> Result<Query, QueryError> {
+fn parse(
+    capability: &CapabilityId,
+    input: Value,
+    settings: &OwnerSettings,
+) -> Result<Query, QueryError> {
     let ids = capabilities();
     let id = capability.as_str();
-    let invalid = |error: serde_json::Error| QueryError::invalid(error.to_string());
-    if id == ids.search.as_str() {
-        return serde_json::from_value::<SearchQuery>(input)
-            .map(Query::Search)
-            .map_err(invalid);
+    // Validate the caller's shape BEFORE adding owner settings. Never silently overwrite an
+    // attempted URL/org/stream override, even on the direct capability invocation path.
+    let mut input = input
+        .as_object()
+        .cloned()
+        .ok_or_else(|| QueryError::invalid("expected an input object"))?;
+    if ["url", "org", "stream"]
+        .iter()
+        .any(|key| input.contains_key(*key))
+    {
+        return Err(QueryError::invalid(
+            "store destination fields are owner-configured",
+        ));
     }
+    if ![
+        ids.trace.as_str(),
+        ids.agent_stats.as_str(),
+        ids.broker_providers.as_str(),
+        ids.broker_usage.as_str(),
+    ]
+    .contains(&id)
+    {
+        return Err(QueryError::invalid(
+            "capability is not declared by this provider",
+        ));
+    }
+    input.insert("url".to_owned(), Value::String(settings.url.clone()));
+    input.insert("org".to_owned(), Value::String(settings.org.clone()));
+    input.insert("stream".to_owned(), Value::String(settings.stream.clone()));
+    let input = Value::Object(input);
+    let invalid = |error: serde_json::Error| QueryError::invalid(error.to_string());
     if id == ids.trace.as_str() {
         return serde_json::from_value::<TraceQuery>(input)
             .map(Query::Trace)
@@ -170,9 +234,9 @@ fn parse(capability: &CapabilityId, input: Value) -> Result<Query, QueryError> {
             .map(Query::Broker)
             .map_err(invalid);
     }
-    Err(QueryError::invalid(format!(
-        "{id} is not a capability this provider declares"
-    )))
+    Err(QueryError::invalid(
+        "capability is not declared by this provider",
+    ))
 }
 
 fn provider_error(error: QueryError) -> ProviderError {
@@ -279,97 +343,10 @@ mod tests {
         let expected = include_str!("../tests/fixtures/manifest.json");
         assert_eq!(actual, expected);
         let decoded: Value = serde_json::from_str(expected).expect("the snapshot is JSON");
-        assert_eq!(decoded["capabilities"].as_array().expect("array").len(), 5);
+        assert_eq!(decoded["capabilities"].as_array().expect("array").len(), 4);
         assert_eq!(
             decoded["commandWords"],
             json!(["openobserve", "agent", "broker"])
-        );
-    }
-
-    /// One statement, one POST, with the window resolved against the injected clock.
-    #[test]
-    fn a_raw_statement_is_one_post_and_its_rows_come_back_fitted() {
-        let (transport, seen) = scripted(&[(200, SEARCH_TRACES)]);
-        let output = invoke_with(
-            &capability("openobserve.search"),
-            json!({
-                "url": "http://rpi.lan/openobserve",
-                "sinceSeconds": 3_600,
-                "signal": "traces",
-                "sql": "SELECT trace_id, operation_name FROM \"dekopon\"",
-                "limit": 2
-            }),
-            NOW_US,
-            transport,
-        )
-        .expect("rows");
-
-        let requests = seen.borrow();
-        assert_eq!(requests.len(), 1, "one statement is one request");
-        assert_eq!(
-            requests[0].uri,
-            "http://rpi.lan/openobserve/api/default/_search?type=traces"
-        );
-        assert_eq!(
-            body(&requests[0])["query"]["start_time"],
-            NOW_US - 3_600_000_000
-        );
-        assert_eq!(body(&requests[0])["query"]["end_time"], NOW_US);
-        assert_eq!(body(&requests[0])["query"]["size"], 2);
-        assert_eq!(output["returned"], 2);
-        assert_eq!(output["total"], 1_873);
-        assert_eq!(output["truncated"], true);
-        assert_eq!(output["omittedRows"], 1_871);
-    }
-
-    /// The two formats, from one recorded answer: JSON pipes, the table reads, and both say the
-    /// store had 1873 rows and this envelope carries two.
-    #[test]
-    fn both_formats_come_out_of_the_same_answer_with_the_same_marker() {
-        let (transport, _) = scripted(&[(200, SEARCH_TRACES)]);
-        let input = json!({
-            "url": "http://rpi.lan/openobserve",
-            "sinceSeconds": 3_600,
-            "signal": "traces",
-            "sql": "SELECT trace_id, operation_name FROM \"dekopon\"",
-            "limit": 2
-        });
-        let json_output = invoke_with(
-            &capability("openobserve.search"),
-            input.clone(),
-            NOW_US,
-            transport,
-        )
-        .expect("rows");
-        assert_eq!(json_output["rows"][0]["operation_name"], "gateway.session");
-        assert_eq!(json_output["truncated"], true);
-        assert_eq!(json_output["omittedRows"], 1_871);
-
-        let (transport, _) = scripted(&[(200, SEARCH_TRACES)]);
-        let mut table_input = input;
-        table_input["format"] = json!("table");
-        let table = invoke_with(
-            &capability("openobserve.search"),
-            table_input,
-            NOW_US,
-            transport,
-        )
-        .expect("a table");
-        let text = table
-            .as_str()
-            .expect("a table is a string the shell prints verbatim");
-        // Column order is the parsed object's key order, which `serde_json`'s default map makes
-        // alphabetical — stable across runs, which is what a model reading two answers needs.
-        let header = text.lines().next().expect("a header");
-        assert_eq!(
-            header.split_whitespace().collect::<Vec<_>>(),
-            ["operation_name", "trace_id"]
-        );
-        assert!(text.contains("gateway.session"), "{text}");
-        assert_eq!(
-            text.lines().last(),
-            Some("-- 2 of 1873 rows; truncated, 1871 omitted"),
-            "{text}"
         );
     }
 
@@ -384,7 +361,6 @@ mod tests {
         let table = invoke_with(
             &capability("openobserve.agent-stats"),
             json!({
-                "url": "http://rpi.lan/openobserve",
                 "sinceSeconds": 86_400,
                 "agent": "reviewer",
                 "format": "table"
@@ -412,7 +388,6 @@ mod tests {
         let output = invoke_with(
             &capability("openobserve.agent-stats"),
             json!({
-                "url": "http://rpi.lan/openobserve",
                 "sinceSeconds": 86_400,
                 "agent": "reviewer"
             }),
@@ -484,7 +459,6 @@ mod tests {
         let output = invoke_with(
             &capability("openobserve.agent-stats"),
             json!({
-                "url": "http://rpi.lan/openobserve",
                 "sinceSeconds": 86_400,
                 "agent": "newcomer"
             }),
@@ -506,7 +480,6 @@ mod tests {
         let output = invoke_with(
             &capability("openobserve.broker-providers"),
             json!({
-                "url": "http://rpi.lan/openobserve",
                 "sinceSeconds": 86_400,
                 "view": "providers"
             }),
@@ -547,7 +520,6 @@ mod tests {
         let output = invoke_with(
             &capability("openobserve.broker-providers"),
             json!({
-                "url": "http://rpi.lan/openobserve",
                 "sinceSeconds": 3_600,
                 "view": "providers"
             }),
@@ -566,7 +538,6 @@ mod tests {
         let output = invoke_with(
             &capability("openobserve.broker-usage"),
             json!({
-                "url": "http://rpi.lan/openobserve",
                 "sinceSeconds": 86_400,
                 "view": "usage",
                 "by": "agent"
@@ -592,7 +563,6 @@ mod tests {
         invoke_with(
             &capability("openobserve.trace"),
             json!({
-                "url": "http://rpi.lan/openobserve",
                 "sinceSeconds": 3_600,
                 "traceId": "0af7651916cd43dd8448eb211c80319c"
             }),
@@ -612,21 +582,19 @@ mod tests {
         assert!(!sql.contains('*'), "{sql}");
     }
 
-    /// A refused credential and a rejected statement are classified, not passed through raw.
+    /// Only a fixed status hint reaches the model; upstream errors can contain owner settings.
     #[test]
-    fn upstream_refusals_are_classified() {
+    fn upstream_refusals_are_classified_without_echoing_settings() {
         for (status, fixture, needle) in [
             (401_u16, SEARCH_401, "credential"),
-            (400, SEARCH_400, "audit_event"),
+            (400, SEARCH_400, "statement"),
         ] {
             let (transport, _) = scripted(&[(status, fixture)]);
             let error = invoke_with(
-                &capability("openobserve.search"),
+                &capability("openobserve.trace"),
                 json!({
-                    "url": "http://rpi.lan/openobserve",
                     "sinceSeconds": 3_600,
-                    "signal": "traces",
-                    "sql": "SELECT 1"
+                    "traceId": "0af7651916cd43dd8448eb211c80319c"
                 }),
                 NOW_US,
                 transport,
@@ -638,6 +606,7 @@ mod tests {
                 "{status}: {}",
                 error.message()
             );
+            assert!(!error.message().contains("rpi.lan"));
         }
     }
 
@@ -678,14 +647,64 @@ mod tests {
         }
     }
 
+    #[test]
+    fn direct_invocation_cannot_override_settings_or_send_sql() {
+        let settings = super::OwnerSettings {
+            url: "https://configured.example/openobserve".to_owned(),
+            org: "default".to_owned(),
+            stream: "dekopon".to_owned(),
+        };
+        for key in ["url", "org", "stream"] {
+            let mut input = json!({
+                "sinceSeconds": 3_600,
+                "traceId": "0af7651916cd43dd8448eb211c80319c"
+            });
+            input[key] = json!("another-stream");
+            assert!(super::parse(&capability("openobserve.trace"), input, &settings).is_err());
+        }
+        assert!(
+            super::parse(
+                &capability("openobserve.search"),
+                json!({"sinceSeconds": 3_600, "sql": "SELECT * FROM other"}),
+                &settings
+            )
+            .is_err()
+        );
+        let mut safe = super::parse(
+            &capability("openobserve.trace"),
+            json!({
+                "sinceSeconds": 3_600,
+                "traceId": "0af7651916cd43dd8448eb211c80319c"
+            }),
+            &settings,
+        )
+        .expect("bounded query");
+        safe.validate().expect("valid owner settings");
+        assert_eq!(safe.scope().url, settings.url);
+        assert_eq!(safe.scope().stream, settings.stream);
+
+        let invalid = super::OwnerSettings {
+            url: "not-a-url-secret".to_owned(),
+            org: "default".to_owned(),
+            stream: "dekopon".to_owned(),
+        };
+        let error = super::invoke_with_settings(
+            &capability("openobserve.trace"),
+            json!({"sinceSeconds": 3_600, "traceId": "0af7651916cd43dd8448eb211c80319c"}),
+            &invalid,
+            NOW_US,
+            |_request| panic!("invalid owner settings must send no request"),
+        )
+        .expect_err("invalid configuration");
+        assert!(!error.message().contains("not-a-url-secret"));
+    }
+
     /// The word is not on the argv, so the action recovers it — and the one argv that cannot,
     /// a bare `--help`, renders one overview naming all three words rather than one word's page.
     #[test]
     fn the_action_recovers_the_word_the_host_did_not_pass() {
         let ids = capabilities();
         for (action, usage) in [
-            ("sql", "Usage: openobserve sql"),
-            ("search", "Usage: openobserve search"),
             ("trace", "Usage: openobserve trace"),
             ("stats", "Usage: agent stats"),
             ("providers", "Usage: broker providers"),
@@ -708,8 +727,6 @@ mod tests {
         };
         assert_eq!(status, 0);
         for line in [
-            "openobserve sql",
-            "openobserve search",
             "openobserve trace",
             "agent stats",
             "broker providers",
@@ -733,7 +750,7 @@ mod tests {
             };
             assert_eq!(status, 2, "{argv:?}");
             assert!(stdout.is_empty(), "{argv:?}");
-            assert!(stderr.contains("openobserve sql"), "{argv:?}");
+            assert!(stderr.contains("openobserve trace"), "{argv:?}");
         }
 
         let CommandRun::Rendered { stdout, status, .. } =
@@ -756,8 +773,6 @@ mod tests {
             &capabilities(),
             &[
                 "stats".to_owned(),
-                "--url".to_owned(),
-                "http://rpi.lan/openobserve".to_owned(),
                 "--agent".to_owned(),
                 "reviewer".to_owned(),
                 "--since".to_owned(),

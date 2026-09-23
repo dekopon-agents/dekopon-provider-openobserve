@@ -16,7 +16,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::fit::{DEFAULT_MAX_OUTPUT_BYTES, MAX_OUTPUT_BYTES_CEILING, MIN_OUTPUT_BYTES};
-use crate::window::{Window, parse_since};
+use crate::window::{MAX_WINDOW_SECONDS, Window, parse_since};
 
 /// The largest number of rows any word will ask a store for.
 pub const MAX_LIMIT: u32 = 500;
@@ -150,26 +150,30 @@ impl Scope {
     pub fn validate(&mut self) -> Result<(), QueryError> {
         self.url = self.url.trim_end_matches('/').to_owned();
         if !(self.url.starts_with("http://") || self.url.starts_with("https://")) {
-            return Err(QueryError::invalid(format!(
-                "--url {}: expected an http:// or https:// base URL",
-                self.url
-            )));
+            return Err(QueryError::invalid(
+                "configured OpenObserve URL must be an http:// or https:// base URL",
+            ));
         }
         if self.url.contains(['?', '#', ' ']) {
             return Err(QueryError::invalid(
-                "--url must be a base URL with no query string or fragment",
+                "configured OpenObserve URL must have no query string or fragment",
             ));
         }
-        for (label, value) in [("--org", &self.org), ("--stream", &self.stream)] {
+        for (label, value) in [("org", &self.org), ("stream", &self.stream)] {
             if value.is_empty()
                 || !value
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
             {
                 return Err(QueryError::invalid(format!(
-                    "{label} {value}: expected letters, digits, underscore, or hyphen"
+                    "configured OpenObserve {label} must contain only letters, digits, underscore, or hyphen"
                 )));
             }
+        }
+        if !(1..=MAX_WINDOW_SECONDS).contains(&self.since_seconds) {
+            return Err(QueryError::invalid(
+                "sinceSeconds must be between 1 second and 30 days",
+            ));
         }
         if !(MIN_OUTPUT_BYTES..=MAX_OUTPUT_BYTES_CEILING).contains(&self.max_output_bytes) {
             return Err(QueryError::invalid(format!(
