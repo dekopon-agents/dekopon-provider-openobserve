@@ -2,7 +2,7 @@
 //!
 //! Goal 2 says everything that happened is in the operator's telemetry store. This component is how
 //! an owner grants a model a bounded read of it — an ordinary `dekopon:http@1.1.0` client with a
-//! broker-injected, DRN-bound Basic credential, no endpoint of its own, and no authority it did not
+//! broker-injected, destination-bound Basic credential, no endpoint of its own, and no authority it did not
 //! receive. It replaces something that was deleted rather than adding something new: `dekopon-run
 //! session list | show | replay` read sessions back from OpenObserve and went with the runner in
 //! 0.13.0. That client belonged out of tree, and this is where it lands.

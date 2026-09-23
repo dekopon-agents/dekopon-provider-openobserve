@@ -3,7 +3,7 @@
 A bounded, read-only OpenObserve telemetry provider for Dekopon. The agent cannot choose the
 endpoint, organization, stream, or SQL. The broker owner supplies one endpoint through
 `providerSettings.openobserve` and grants individual capabilities with HTTP constraints and a
-DRN-bound search credential. This protects **agent-authored requests**; an OSS OpenObserve account
+destination-bound search credential. This protects **agent-authored requests**; an OSS OpenObserve account
 is not a stream-level RBAC boundary against a compromised provider or direct access to the store.
 
 ## Owner setup
@@ -21,7 +21,9 @@ providerSettings:
 
 These are nonsecret settings, not a capability grant. The owner must separately allow the exact
 HTTPS authority, `POST` to `/openobserve/api/default/_search`, an appropriate request/response
-budget, and a broker-injected Basic credential bound to that destination. The native HTTP host
+budget, and a broker-injected `Basic` header bound to that destination (a legacy
+`bearerToken` binding with `scheme: Basic` and a vault-supplied base64 `email:token`).
+The native HTTP host
 checks DNS addresses and pins resolution; if the address is non-public, the owner must separately
 configure `http.nonPublicHttps`. Private CA trust is separately configured with
 `http.extraCABundles`. Neither setting widens the capability's destination grant.
