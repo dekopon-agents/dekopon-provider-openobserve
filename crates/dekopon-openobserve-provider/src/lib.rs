@@ -662,6 +662,33 @@ mod tests {
             input[key] = json!("another-stream");
             assert!(super::parse(&capability("openobserve.trace"), input, &settings).is_err());
         }
+        for (id, input) in [
+            (
+                "openobserve.trace",
+                json!({"sinceSeconds": 3_600, "traceId": "0af7651916cd43dd8448eb211c80319c"}),
+            ),
+            (
+                "openobserve.agent-stats",
+                json!({"sinceSeconds": 3_600, "agent": "whatsapp-test"}),
+            ),
+            (
+                "openobserve.broker-providers",
+                json!({"sinceSeconds": 3_600, "view": "providers"}),
+            ),
+            (
+                "openobserve.broker-usage",
+                json!({"sinceSeconds": 3_600, "view": "usage"}),
+            ),
+        ] {
+            for key in ["sql", "where", "select", "bogus"] {
+                let mut attempted = input.clone();
+                attempted[key] = json!("SELECT * FROM another-stream");
+                assert!(
+                    super::parse(&capability(id), attempted, &settings).is_err(),
+                    "{id} must reject the {key} field"
+                );
+            }
+        }
         assert!(
             super::parse(
                 &capability("openobserve.search"),
