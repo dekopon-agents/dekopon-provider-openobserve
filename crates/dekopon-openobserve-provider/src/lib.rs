@@ -2,7 +2,7 @@
 //!
 //! Goal 2 says everything that happened is in the operator's telemetry store. This component is how
 //! an owner grants a model a bounded read of it — an ordinary `dekopon:http@1.1.0` client with a
-//! broker-injected, DRN-bound Basic credential, no endpoint of its own, and no authority it did not
+//! broker-injected, destination-bound Basic credential, no endpoint of its own, and no authority it did not
 //! receive. It replaces something that was deleted rather than adding something new: `dekopon-run
 //! session list | show | replay` read sessions back from OpenObserve and went with the runner in
 //! 0.13.0. That client belonged out of tree, and this is where it lands.
@@ -661,6 +661,33 @@ mod tests {
             });
             input[key] = json!("another-stream");
             assert!(super::parse(&capability("openobserve.trace"), input, &settings).is_err());
+        }
+        for (id, input) in [
+            (
+                "openobserve.trace",
+                json!({"sinceSeconds": 3_600, "traceId": "0af7651916cd43dd8448eb211c80319c"}),
+            ),
+            (
+                "openobserve.agent-stats",
+                json!({"sinceSeconds": 3_600, "agent": "whatsapp-test"}),
+            ),
+            (
+                "openobserve.broker-providers",
+                json!({"sinceSeconds": 3_600, "view": "providers"}),
+            ),
+            (
+                "openobserve.broker-usage",
+                json!({"sinceSeconds": 3_600, "view": "usage"}),
+            ),
+        ] {
+            for key in ["sql", "where", "select", "bogus"] {
+                let mut attempted = input.clone();
+                attempted[key] = json!("SELECT * FROM another-stream");
+                assert!(
+                    super::parse(&capability(id), attempted, &settings).is_err(),
+                    "{id} must reject the {key} field"
+                );
+            }
         }
         assert!(
             super::parse(
