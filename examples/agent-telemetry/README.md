@@ -25,7 +25,7 @@ agent stats --url http://rpi.lan:5080/openobserve --agent reviewer --since 24h -
 broker usage --url http://rpi.lan:5080/openobserve --since 24h --by capability
 openobserve trace --url http://rpi.lan:5080/openobserve --since 1h 0af7651916cd43dd8448eb211c80319c
 openobserve sql --url http://rpi.lan:5080/openobserve --since 1h --limit 5 \
-  "SELECT operation_name, duration FROM \"dekopon\" WHERE service_name = 'dekopond' ORDER BY _timestamp DESC LIMIT 5" \
+  "SELECT operation_name, duration FROM \"dekopon\" WHERE service_name = 'dekopon-gatewayd' ORDER BY _timestamp DESC LIMIT 5" \
   | jq '.rows[] | .operation_name'
 ```
 

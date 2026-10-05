@@ -3,7 +3,7 @@
 //! Two facts about dekopon's own telemetry shape every statement here, and neither is in #250
 //! because neither was known when it was written. Both are recorded in the README.
 //!
-//! 1. **`accounting.model.turn` is not a queryable column.** `dekopond` wires only the tracer
+//! 1. **`accounting.model.turn` is not a queryable column.** `dekopon-gatewayd` wires only the tracer
 //!    provider, so a `tracing` event inside a span becomes an OTLP *span event*, and OpenObserve
 //!    serializes a span's events into one `events` **string** column
 //!    (`Span::events: String`). The identical usage numbers are real span attributes on the
