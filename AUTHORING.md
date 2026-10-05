@@ -10,12 +10,12 @@ Built from [dekopon#250](https://github.com/dekopon-agents/dekopon/issues/250), 
 taken as given; three things in it turned out not to survive contact with the tree.
 
 **`accounting.model.turn` is unreachable as a column.** #250 plans `agent stats` against that
-record. `dekopond` builds only `telemetry.settings.tracer_provider()` — `optional_logger_provider`
+record. `dekopon-gatewayd` builds only `telemetry.settings.tracer_provider()` — `optional_logger_provider`
 is wired in `dekopon-brokerd` since #217 and nowhere else — so the record is a `tracing` event
 inside a span, `tracing_opentelemetry` turns it into a span event, and OpenObserve serializes a
 span's events into one `events` **string** column (`Span { …, events: String }`,
 `src/common/src/meta/traces.rs`). `docs/improvement.md`'s `SELECT * FROM "dekopon" WHERE audit_event
-= '…'` works for brokerd's records, which are real log rows, and not for dekopond's.
+= '…'` works for brokerd's records, which are real log rows, and not for dekopon-gatewayd's.
 
 The fix cost nothing: `record_usage` writes the identical five token counts onto the enclosing
 `prompt.model_turn` **span**, which folds to ordinary columns, and OpenObserve's own `duration`
