@@ -32,6 +32,9 @@ use crate::wire;
 const SESSION_SPAN: &str = "gateway.session";
 /// The span a model turn's usage is on.
 const TURN_SPAN: &str = "prompt.model_turn";
+/// Broker provider loads precede the `broker_started` record in the same startup.
+const PROVIDER_LOAD_LEAD_SECONDS: u64 = 300;
+const MAX_PROVIDER_WINDOW_SECONDS: u64 = 86_400;
 
 /// The OpenObserve `_search` backend, with the clock reading the plan was resolved against.
 pub(crate) struct OpenObserve {
@@ -109,20 +112,38 @@ impl Backend for OpenObserve {
             },
             Query::Broker(broker) => match (broker.view, prior.len()) {
                 (BrokerView::Providers, 0) => {
-                    wire::search(scope, Signal::Logs, &boot_sql(&scope.stream), window, 1).map(Some)
+                    wire::search(scope, Signal::Logs, &boot_sql(&scope.stream), window, 2).map(Some)
                 }
-                (BrokerView::Providers, 1) => match boot_timestamp(&prior[0])? {
-                    None => Ok(None),
-                    Some(booted_at) if booted_at > window.end_us() => Ok(None),
-                    Some(booted_at) => wire::search(
-                        scope,
-                        Signal::Logs,
-                        &loaded_providers_sql(&scope.stream),
-                        Window::between(window.start_us().max(booted_at), window.end_us()),
-                        200,
-                    )
-                    .map(Some),
-                },
+                (BrokerView::Providers, 1) => {
+                    let boots = boot_timestamps(&prior[0])?;
+                    match boots.first().copied() {
+                        None => Ok(None),
+                        Some(booted_at) if booted_at > window.end_us() => Ok(None),
+                        Some(booted_at) => {
+                            let start = booted_at
+                                .saturating_sub(PROVIDER_LOAD_LEAD_SECONDS * 1_000_000)
+                                .max(
+                                    boots
+                                        .get(1)
+                                        .copied()
+                                        .map_or(0, |previous| previous.saturating_add(1)),
+                                )
+                                .max(
+                                    window
+                                        .end_us()
+                                        .saturating_sub(MAX_PROVIDER_WINDOW_SECONDS * 1_000_000),
+                                );
+                            wire::search(
+                                scope,
+                                Signal::Logs,
+                                &loaded_providers_sql(&scope.stream),
+                                Window::between(start, window.end_us()),
+                                200,
+                            )
+                            .map(Some)
+                        }
+                    }
+                }
                 (BrokerView::Usage, 0) => wire::search(
                     scope,
                     Signal::Logs,
@@ -284,11 +305,11 @@ fn decisions_sql(stream: &str, agent: &str) -> String {
 fn boot_sql(stream: &str) -> String {
     format!(
         "SELECT _timestamp FROM \"{stream}\" WHERE event = 'broker_started' \
-         ORDER BY _timestamp DESC LIMIT 1"
+         ORDER BY _timestamp DESC LIMIT 2"
     )
 }
 
-/// Every provider the broker announced after that boot.
+/// Every provider the broker announced during the latest boot's bounded load interval.
 ///
 /// The discriminator is `artifact_sha256 IS NOT NULL` rather than the record's message, because a
 /// log record's body lands in a different column on different store versions while an attribute
@@ -296,14 +317,14 @@ fn boot_sql(stream: &str) -> String {
 fn loaded_providers_sql(stream: &str) -> String {
     format!(
         "SELECT provider, artifact_sha256, capabilities, command_words, command_export, compile_ms \
-         FROM \"{stream}\" WHERE artifact_sha256 IS NOT NULL ORDER BY _timestamp ASC LIMIT 200"
+         FROM \"{stream}\" WHERE provider IS NOT NULL AND artifact_sha256 IS NOT NULL ORDER BY _timestamp ASC LIMIT 200"
     )
 }
 
-fn usage_sql(stream: &str, key: &str, limit: u32) -> String {
+pub(crate) fn usage_sql(stream: &str, key: &str, limit: u32) -> String {
     format!(
         "SELECT {key} AS bucket, count(*) AS calls, \
-         sum(CASE WHEN outcome = 'succeeded' THEN 1 ELSE 0 END) AS succeeded, \
+         sum(CASE WHEN outcome = 'Succeeded' THEN 1 ELSE 0 END) AS succeeded, \
          approx_percentile_cont(duration_ms, 0.5) AS p50, \
          approx_percentile_cont(duration_ms, 0.95) AS p95 \
          FROM \"{stream}\" WHERE audit_event = 'broker.execution' AND {key} IS NOT NULL \
@@ -332,12 +353,17 @@ fn trace_ids(response: &Response) -> Result<Vec<String>, QueryError> {
         .collect())
 }
 
-fn boot_timestamp(response: &Response) -> Result<Option<u64>, QueryError> {
+fn boot_timestamps(response: &Response) -> Result<Vec<u64>, QueryError> {
     let (rows, _) = wire::hits(response)?;
     Ok(rows
-        .first()
-        .and_then(|row| row.get("_timestamp"))
-        .and_then(Value::as_u64))
+        .iter()
+        .take(2)
+        .filter_map(|row| row.get("_timestamp").and_then(Value::as_u64))
+        .collect())
+}
+
+fn boot_timestamp(response: &Response) -> Result<Option<u64>, QueryError> {
+    Ok(boot_timestamps(response)?.first().copied())
 }
 
 fn fold_decisions(rows: &[Value], folded: &mut AgentStats) {
@@ -509,6 +535,9 @@ mod tests {
         assert!(usage_sql("dekopon", "provider", 50).contains("SELECT provider AS bucket"));
         assert!(usage_sql("dekopon", "capability_id", 50).contains("GROUP BY bucket"));
         assert!(denials_sql("dekopon", 50).contains("decision_allowed = false"));
-        assert!(loaded_providers_sql("dekopon").contains("artifact_sha256 IS NOT NULL"));
+        assert!(
+            loaded_providers_sql("dekopon")
+                .contains("provider IS NOT NULL AND artifact_sha256 IS NOT NULL")
+        );
     }
 }
