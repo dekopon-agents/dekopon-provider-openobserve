@@ -1,11 +1,11 @@
 {
   "apiVersion": "dekopon.dev/provider/v1alpha1",
   "id": "openobserve",
-  "description": "Reads configured OpenObserve telemetry with bounded, generated queries: trace skeletons, agent statistics, and broker fleet activity",
+  "description": "Reads configured OpenObserve telemetry with bounded generated queries",
   "capabilities": [
     {
       "id": "openobserve.trace",
-      "description": "Returns one trace's spans as a projected skeleton: ids, operation, service, kind, status, and timings. Never span events, which is where conversation text lives",
+      "description": "Projected trace spans without conversation events",
       "effect": "read-only",
       "risk": "Low",
       "inputSchema": {
@@ -13,7 +13,7 @@
         "properties": {
           "format": {
             "default": "json",
-            "description": "json is one object with a rows array and the store's own column names as row keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a fixed-width text table to read directly. Both carry truncated and omittedRows.",
+            "description": "One JSON object or a fixed-width table; both carry truncation information.",
             "enum": [
               "json",
               "table"
@@ -22,26 +22,24 @@
           },
           "limit": {
             "default": 100,
-            "description": "Rows to ask the store for.",
             "maximum": 500,
             "minimum": 1,
             "type": "integer"
           },
           "maxOutputBytes": {
             "default": 65536,
-            "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
+            "description": "Fit the result under this many bytes; the grant's ceiling is authoritative.",
             "maximum": 1048576,
             "minimum": 1024,
             "type": "integer"
           },
           "sinceSeconds": {
-            "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
-            "maximum": 2592000,
+            "description": "How far back to look, in seconds; at most 24 hours.",
+            "maximum": 86400,
             "minimum": 1,
             "type": "integer"
           },
           "traceId": {
-            "description": "The 32-hexadecimal-character W3C trace id.",
             "maxLength": 32,
             "minLength": 32,
             "pattern": "^[0-9a-fA-F]{32}$",
@@ -49,22 +47,22 @@
           }
         },
         "required": [
-          "sinceSeconds",
-          "traceId"
+          "traceId",
+          "sinceSeconds"
         ],
         "type": "object"
       }
     },
     {
       "id": "openobserve.agent-stats",
-      "description": "One object of an agent's own numbers over the window: sessions, model turns, latency percentiles, token totals by kind, capability calls by id, and denials by reason",
+      "description": "One agent's fixed five-minute sessions, turns, and decisions",
       "effect": "read-only",
       "risk": "Low",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
           "agent": {
-            "description": "Whose numbers. A flag in 0.1.0: Cedar decides on context.agent, which the broker stamps, and it cannot compare provider input against context — so a grant of this capability can name any agent. The dekopon:meta/caller import that would make the scope a fact of the invocation does not exist yet.",
+            "description": "Cedar cannot compare the named agent against context.agent; a grant can name any agent.",
             "maxLength": 128,
             "minLength": 1,
             "pattern": "^[A-Za-z0-9_-]+$",
@@ -72,7 +70,7 @@
           },
           "format": {
             "default": "json",
-            "description": "json is one object with a rows array and the store's own column names as row keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a fixed-width text table to read directly. Both carry truncated and omittedRows.",
+            "description": "One JSON object or a fixed-width table; both carry truncation information.",
             "enum": [
               "json",
               "table"
@@ -81,20 +79,13 @@
           },
           "maxOutputBytes": {
             "default": 65536,
-            "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
+            "description": "Fit the result under this many bytes; the grant's ceiling is authoritative.",
             "maximum": 1048576,
             "minimum": 1024,
-            "type": "integer"
-          },
-          "sinceSeconds": {
-            "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
-            "maximum": 2592000,
-            "minimum": 1,
             "type": "integer"
           }
         },
         "required": [
-          "sinceSeconds",
           "agent"
         ],
         "type": "object"
@@ -102,7 +93,7 @@
     },
     {
       "id": "openobserve.broker-providers",
-      "description": "What the broker loaded at its last boot inside the window: provider id, artifact digest prefix, capability and command-word counts, and compile time. Never a path",
+      "description": "Broker boot and loaded providers within 24 hours",
       "effect": "read-only",
       "risk": "Low",
       "inputSchema": {
@@ -110,7 +101,7 @@
         "properties": {
           "format": {
             "default": "json",
-            "description": "json is one object with a rows array and the store's own column names as row keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a fixed-width text table to read directly. Both carry truncated and omittedRows.",
+            "description": "One JSON object or a fixed-width table; both carry truncation information.",
             "enum": [
               "json",
               "table"
@@ -119,19 +110,18 @@
           },
           "maxOutputBytes": {
             "default": 65536,
-            "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
+            "description": "Fit the result under this many bytes; the grant's ceiling is authoritative.",
             "maximum": 1048576,
             "minimum": 1024,
             "type": "integer"
           },
           "sinceSeconds": {
-            "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
-            "maximum": 2592000,
+            "description": "How far back to look, in seconds; at most 24 hours.",
+            "maximum": 86400,
             "minimum": 1,
             "type": "integer"
           },
           "view": {
-            "description": "Which fleet view.",
             "enum": [
               "providers"
             ],
@@ -139,15 +129,15 @@
           }
         },
         "required": [
-          "sinceSeconds",
-          "view"
+          "view",
+          "sinceSeconds"
         ],
         "type": "object"
       }
     },
     {
       "id": "openobserve.broker-usage",
-      "description": "The fleet view over the window: calls grouped by provider, capability, or agent, or refusals grouped by reason. Every agent's counts, which is what a fleet view is",
+      "description": "Five-minute broker usage or denials without per-actor groups",
       "effect": "read-only",
       "risk": "Low",
       "inputSchema": {
@@ -155,17 +145,15 @@
         "properties": {
           "by": {
             "default": "provider",
-            "description": "How usage groups. Ignored by denials.",
             "enum": [
               "provider",
-              "capability",
-              "agent"
+              "capability"
             ],
             "type": "string"
           },
           "format": {
             "default": "json",
-            "description": "json is one object with a rows array and the store's own column names as row keys, so it pipes straight into `| jq '.rows[] | .duration_ms'`. table is a fixed-width text table to read directly. Both carry truncated and omittedRows.",
+            "description": "One JSON object or a fixed-width table; both carry truncation information.",
             "enum": [
               "json",
               "table"
@@ -173,27 +161,19 @@
             "type": "string"
           },
           "limit": {
-            "default": 100,
-            "description": "Rows to ask the store for.",
-            "maximum": 500,
+            "default": 20,
+            "maximum": 50,
             "minimum": 1,
             "type": "integer"
           },
           "maxOutputBytes": {
             "default": 65536,
-            "description": "Fit the result under this many bytes, dropping rows from the tail and reporting truncated with an exact omittedRows. The grant's own maxOutputBytes is the real ceiling and refuses rather than truncates.",
+            "description": "Fit the result under this many bytes; the grant's ceiling is authoritative.",
             "maximum": 1048576,
             "minimum": 1024,
             "type": "integer"
           },
-          "sinceSeconds": {
-            "description": "How far back to look, in seconds. Capped at 30 days, which is the homelab store's retention; a longer window returns nothing anyway.",
-            "maximum": 2592000,
-            "minimum": 1,
-            "type": "integer"
-          },
           "view": {
-            "description": "Which fleet view.",
             "enum": [
               "usage",
               "denials"
@@ -202,7 +182,6 @@
           }
         },
         "required": [
-          "sinceSeconds",
           "view"
         ],
         "type": "object"

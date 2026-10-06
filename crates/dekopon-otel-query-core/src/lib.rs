@@ -1,7 +1,7 @@
 //! The backend-neutral half of Dekopon's telemetry-query providers.
 //!
 //! #250 decided one component per backend over one core crate, and this is that crate: the command
-//! word grammar (`openobserve`/`quickwit`/… plus the neutral `agent` and `broker`), the 30-day
+//! word grammar (`openobserve`/`quickwit`/… plus the neutral `agent` and `broker`), the 24-hour
 //! window cap, the dekopon column projection and its exclusion list, the fitting that turns an
 //! oversize result into `truncated` with an exact `omittedRows`, and the output shapes every
 //! backend must produce byte-for-byte in schema. What it does not contain is a wire protocol: a
@@ -27,5 +27,4 @@ pub mod table;
 pub mod window;
 
 pub use backend::{Backend, run};
-pub use grammar::Capabilities;
 pub use query::{Query, QueryError};

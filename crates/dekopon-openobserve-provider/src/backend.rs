@@ -23,7 +23,7 @@ use dekopon_otel_query_core::query::{
     BrokerView, MAX_SESSIONS, Query, QueryError, Signal, quote_literal,
 };
 use dekopon_otel_query_core::window::Window;
-use dekopon_provider_http::{Request, Response};
+use dekopon_provider_sdk::provider::{Request, Response};
 use serde_json::Value;
 
 use crate::wire;
@@ -113,15 +113,13 @@ impl Backend for OpenObserve {
                 }
                 (BrokerView::Providers, 1) => match boot_timestamp(&prior[0])? {
                     None => Ok(None),
+                    Some(booted_at) if booted_at > window.end_us() => Ok(None),
                     Some(booted_at) => wire::search(
                         scope,
                         Signal::Logs,
                         &loaded_providers_sql(&scope.stream),
-                        Window::ending_at(
-                            window.end_us(),
-                            (window.end_us() - booted_at) / 1_000_000,
-                        ),
-                        broker.limit,
+                        Window::between(window.start_us().max(booted_at), window.end_us()),
+                        200,
                     )
                     .map(Some),
                 },
@@ -268,7 +266,7 @@ fn turns_sql(stream: &str, traces: &[String]) -> String {
          sum(usage_total_tokens) AS total_tokens, \
          approx_percentile_cont(duration, 0.5) AS p50, \
          approx_percentile_cont(duration, 0.95) AS p95 \
-         FROM \"{stream}\" WHERE operation_name = {} AND trace_id IN ({})",
+         FROM \"{stream}\" WHERE operation_name = {} AND trace_id IN ({}) LIMIT 1",
         quote_literal(TURN_SPAN),
         ids.join(", ")
     )
@@ -315,18 +313,21 @@ fn usage_sql(stream: &str, key: &str, limit: u32) -> String {
 
 fn denials_sql(stream: &str, limit: u32) -> String {
     format!(
-        "SELECT capability_id, decision_reason, actor_id, count(*) AS denials \
+        "SELECT capability_id, decision_reason, count(*) AS denials \
          FROM \"{stream}\" WHERE audit_event = 'broker.decision' AND decision_allowed = false \
-         GROUP BY capability_id, decision_reason, actor_id ORDER BY denials DESC LIMIT {limit}"
+         GROUP BY capability_id, decision_reason ORDER BY denials DESC LIMIT {limit}"
     )
 }
 
 fn trace_ids(response: &Response) -> Result<Vec<String>, QueryError> {
     let (rows, _) = wire::hits(response)?;
+    let mut unique = std::collections::HashSet::new();
     Ok(rows
         .iter()
         .filter_map(|row| row.get("trace_id").and_then(Value::as_str))
         .filter(|id| id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .filter(|id| unique.insert((*id).to_owned()))
+        .take(MAX_SESSIONS as usize)
         .map(str::to_owned)
         .collect())
 }
@@ -495,18 +496,17 @@ mod tests {
         );
     }
 
-    /// 200 trace ids is the fan-in ceiling, and the statement it produces has to fit inside the
-    /// 16 KiB `maxRequestBytes` #250's constraint sets write.
+    /// 50 trace ids is the fan-in ceiling; the statement fits inside 16 KiB.
     #[test]
     fn the_widest_turn_statement_fits_inside_max_request_bytes() {
-        let traces: Vec<String> = (0..200).map(|index| format!("{index:032x}")).collect();
+        let traces: Vec<String> = (0..50).map(|index| format!("{index:032x}")).collect();
         let statement = turns_sql("dekopon", &traces);
         assert!(statement.len() < 16 * 1024, "{}", statement.len());
     }
 
     #[test]
     fn the_broker_views_group_on_the_column_the_flag_named() {
-        assert!(usage_sql("dekopon", "actor_id", 50).contains("SELECT actor_id AS bucket"));
+        assert!(usage_sql("dekopon", "provider", 50).contains("SELECT provider AS bucket"));
         assert!(usage_sql("dekopon", "capability_id", 50).contains("GROUP BY bucket"));
         assert!(denials_sql("dekopon", 50).contains("decision_allowed = false"));
         assert!(loaded_providers_sql("dekopon").contains("artifact_sha256 IS NOT NULL"));

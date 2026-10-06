@@ -2,14 +2,15 @@
 //!
 //! Every word takes a window and the provider bounds it itself, because `ExecutionConstraints` is
 //! `deny_unknown_fields` and a query-window key would be tree growth in dekopon for a bound only
-//! this provider needs. The cap is hard-coded at 30 days and stated in `--help`: the homelab store
-//! retains 30 days, so a longer window returns nothing anyway, and a bound a model can read is
-//! worth more than one it discovers by refusal.
+//! this provider needs. The row-read cap is 24 hours; aggregates never accept a caller-supplied
+//! window and instead use the fixed five-minute interval.
 
 use std::fmt;
 
 /// The largest window any word will accept, in seconds.
-pub const MAX_WINDOW_SECONDS: u64 = 30 * 24 * 60 * 60;
+pub const MAX_WINDOW_SECONDS: u64 = 24 * 60 * 60;
+/// Non-agent-widenable interval for aggregate views.
+pub const AGGREGATE_WINDOW_SECONDS: u64 = 300;
 
 /// The smallest window worth a request.
 pub const MIN_WINDOW_SECONDS: u64 = 1;
@@ -19,7 +20,7 @@ pub const MIN_WINDOW_SECONDS: u64 = 1;
 pub enum WindowError {
     /// The value did not parse as `<integer><unit>`.
     Malformed(String),
-    /// The value parsed but exceeded the 30-day cap.
+    /// The value parsed but exceeded the 24-hour cap.
     TooLong { seconds: u64 },
     /// The value parsed to zero.
     TooShort,
@@ -34,7 +35,7 @@ impl fmt::Display for WindowError {
             ),
             Self::TooLong { seconds } => write!(
                 formatter,
-                "--since is {seconds}s; the maximum window is {MAX_WINDOW_SECONDS}s (30d)"
+                "--since is {seconds}s; the maximum window is {MAX_WINDOW_SECONDS}s (24h)"
             ),
             Self::TooShort => formatter.write_str("--since must be at least 1s"),
         }
@@ -62,6 +63,12 @@ impl Window {
         }
     }
 
+    /// Builds a window with an explicit inclusive start and exclusive end.
+    #[must_use]
+    pub fn between(start_us: u64, end_us: u64) -> Self {
+        Self { start_us, end_us }
+    }
+
     /// Inclusive start, microseconds since the Unix epoch.
     #[must_use]
     pub fn start_us(&self) -> u64 {
@@ -84,7 +91,7 @@ impl Window {
     }
 }
 
-/// Parses `<integer><unit>` into seconds and applies the 30-day cap.
+/// Parses `<integer><unit>` into seconds and applies the 24-hour cap.
 ///
 /// Deliberately not a general duration parser: no fractions, no compound `1h30m`, no unit beyond
 /// `s`/`m`/`h`/`d`. A model that types something else gets a usage error naming the four units,
@@ -125,7 +132,7 @@ mod tests {
         assert_eq!(parse_since("90s"), Ok(90));
         assert_eq!(parse_since("30m"), Ok(1_800));
         assert_eq!(parse_since("24h"), Ok(86_400));
-        assert_eq!(parse_since("7d"), Ok(604_800));
+        assert_eq!(parse_since("1d"), Ok(86_400));
         for bad in ["", "h", "24", "1.5h", "24H", "1h30m", "-1h", "24w", " 24h"] {
             assert!(
                 matches!(parse_since(bad), Err(WindowError::Malformed(_))),
@@ -134,12 +141,11 @@ mod tests {
         }
     }
 
-    /// The cap is the provider's own, so it is asserted rather than assumed: 30d passes, 31d and
-    /// 721h are refused with the number in the message.
+    /// The cap is the provider's own: 24h passes, 31d and 721h are refused.
     #[test]
-    fn thirty_days_is_the_ceiling_and_zero_is_the_floor() {
-        assert_eq!(parse_since("30d"), Ok(MAX_WINDOW_SECONDS));
-        assert_eq!(parse_since("720h"), Ok(MAX_WINDOW_SECONDS));
+    fn twenty_four_hours_is_the_ceiling_and_zero_is_the_floor() {
+        assert_eq!(parse_since("24h"), Ok(MAX_WINDOW_SECONDS));
+        assert_eq!(parse_since("1440m"), Ok(MAX_WINDOW_SECONDS));
         assert_eq!(
             parse_since("31d"),
             Err(WindowError::TooLong {
@@ -154,7 +160,7 @@ mod tests {
         );
         assert_eq!(parse_since("0s"), Err(WindowError::TooShort));
         assert!(
-            parse_since("31d").unwrap_err().to_string().contains("30d"),
+            parse_since("31d").unwrap_err().to_string().contains("24h"),
             "the refusal names the cap"
         );
     }

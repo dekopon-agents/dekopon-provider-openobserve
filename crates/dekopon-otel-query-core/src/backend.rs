@@ -12,7 +12,7 @@
 //! broker. [`run`] is the driver; it is generic over the transport so every backend is testable as
 //! ordinary Rust against recorded bytes.
 
-use dekopon_provider_http::{HttpError, Request, Response};
+use dekopon_provider_sdk::provider::{HttpError, Request, Response};
 use serde_json::Value;
 
 use crate::query::{Query, QueryError};
@@ -62,7 +62,7 @@ where
 /// The host's message can name a resolved address; the guest's error travels to a model. So the
 /// code is kept and the text is this provider's own.
 fn transport(error: HttpError) -> QueryError {
-    use dekopon_provider_http::HttpErrorCode as Code;
+    use dekopon_provider_sdk::provider::HttpErrorCode as Code;
     let reason = match error.code {
         Code::Denied => {
             "the broker denied the request; the store's host is outside allowedHosts, \
@@ -91,7 +91,7 @@ fn transport(error: HttpError) -> QueryError {
 
 #[cfg(test)]
 mod tests {
-    use dekopon_provider_http::{HttpError, HttpErrorCode, Request, Response};
+    use dekopon_provider_sdk::provider::{HttpError, HttpErrorCode, Request, Response};
     use serde_json::{Value, json};
 
     use super::{Backend, MAX_STEPS, run};
@@ -135,7 +135,7 @@ mod tests {
                 url: "http://rpi.lan/openobserve".to_owned(),
                 org: "default".to_owned(),
                 stream: "dekopon".to_owned(),
-                since_seconds: 3_600,
+                since_seconds: Some(3_600),
                 max_output_bytes: 65_536,
                 format: crate::query::Format::Json,
             },

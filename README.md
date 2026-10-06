@@ -14,7 +14,7 @@ available only during authorized `invoke`, never in `describe` or `run-command`:
 ```yaml
 providerSettings:
   openobserve:
-    url: https://openobserve-tls.openobserve.svc.cluster.local:5443/openobserve
+    url: https://openobserve.openobserve.svc.cluster.local:5080/openobserve
     org: default
     stream: dekopon
 ```
@@ -22,7 +22,7 @@ providerSettings:
 These are nonsecret settings, not a capability grant. The owner must separately allow the exact
 HTTPS authority, `POST` to `/openobserve/api/default/_search`, an appropriate request/response
 budget, and a broker-injected `Basic` header bound to that destination (a legacy
-`bearerToken` binding with `scheme: Basic` and a vault-supplied base64 `email:token`).
+`bearerToken` binding with `scheme: Basic` and a vault-supplied base64 `username:password`).
 The native HTTP host
 checks DNS addresses and pins resolution; if the address is non-public, the owner must separately
 configure `http.nonPublicHttps`. Private CA trust is separately configured with
@@ -38,9 +38,9 @@ host messages; upstream error bodies are not shown to the model.
 | Capability | Command | Maximum `_search` calls |
 |---|---|---:|
 | `openobserve.trace` | `openobserve trace --since 1h <TRACE-ID>` | 1 |
-| `openobserve.agent-stats` | `agent stats --since 1d --agent <ID>` | 3 |
+| `openobserve.agent-stats` | `agent stats --agent <ID>` | 3 |
 | `openobserve.broker-providers` | `broker providers --since 1d` | 2 |
-| `openobserve.broker-usage` | `broker usage --since 1h --by capability`, `broker denials --since 1h` | 1 |
+| `openobserve.broker-usage` | `broker usage --by capability`, `broker denials` | 1 |
 
 All four return explicitly projected fields, not conversation text, span events, policy IDs,
 credential names or paths. **There is no `openobserve.search`, `openobserve sql`, `search --where`,
@@ -48,8 +48,12 @@ or SQL-bearing input field.** Both command parsing and direct invocation reject 
 these. A future raw-SQL tool would require an explicit, wider authorization decision; attaching a
 stream name to arbitrary SQL would not enforce a stream boundary.
 
-All commands accept `--since` (1 second through 30 days), `--format json|table` and
-`--max-output-bytes`; row-producing commands have `--limit` (1–500). JSON is the default and
+Only trace and provider row reads accept `--since` (1 second through 24 hours); all aggregate
+queries use exactly five minutes measured against one clock read per authorized invoke. This
+short slice does not guarantee a memory bound under an ingestion spike. All commands accept
+`--format json|table` and `--max-output-bytes`; trace has `--limit` (1–500), and usage/denials
+have `--limit` (1–50, default 20). Per-actor usage grouping is removed; denials no longer group
+by actor. JSON is the default and
 contains `rows`, `returned`, `total`, `truncated` and `omittedRows`; `agent stats` returns a
 statistics object. Command proposals carry only relative seconds. The broker's clock is read once
 at invocation to form an absolute OpenObserve microsecond window. Results are fitted under the
@@ -69,9 +73,9 @@ cargo fmt --all -- --check
 wasm-tools component wit openobserve-provider.wasm
 ```
 
-The generated component must import `dekopon:http/client@1.1.0`,
-`dekopon:clock/wall@1.0.0`, and `dekopon:settings/config@0.1.0`, and export `describe`,
-`run-command`, and `invoke`. The broker runtime must be released before installing this provider;
-older brokers cannot link the settings import. The shared provider CI/release workflow must accept
-the project-owned `settings.wit` mirror before a release can pass its provenance gate. Artifacts
-must be published and digest-pinned in the provider set, not loaded from a floating tag.
+The generated component uses the SDK 0.34.0 typed `provider@0.4.0` export and stdio streams,
+with HTTP, wall clock and settings imports. Inspect `wasm-tools component wit` for their actual
+SDK-declared versions; no repository-owned WIT mirror or WASI import is used. Build with the shared
+workflow, validate the component, and run component conformance with
+`DEKOPON_PROVIDER_COMPONENT="$PWD/openobserve-provider.wasm" cargo test --locked --workspace`.
+Publish and digest-pin artifacts in the provider set, not from a floating tag.

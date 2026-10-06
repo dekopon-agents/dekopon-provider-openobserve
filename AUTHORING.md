@@ -31,7 +31,7 @@ is in hand. The trait is `plan(&Query, prior: &[Response]) -> Option<Request>`, 
 with a hard ceiling of four steps. A subquery would have kept the flat signature and bet the word on
 which DataFusion features the deployed store exposes.
 
-**Three command words, one argv, no word.** `dekopon:provider@0.3.0` declares `run-command:
+**Historical (superseded by SDK 0.34.0 migration): Three command words, one argv, no word.** `dekopon:provider@0.3.0` declares `run-command:
 func(argv: list<string>, stdin: option<string>)`. The broker host resolves the provider *by* the
 word (`BrokerHost::run_command(word, argv, stdin)`) and then hands the guest `argv` alone. A
 one-word provider never notices; this one has three. The three action vocabularies are disjoint by
@@ -39,6 +39,18 @@ construction, so the action recovers the word — and a bare `--help`, `--versio
 cannot, so those render one overview page naming every word and action. That is arguably better
 than one word's page chosen arbitrarily, but it is a workaround for a gap in the export signature,
 and the honest fix upstream is a `word` parameter on `run-command`.
+
+## SDK 0.34.0 migration
+
+The typed provider@0.4.0 SDK owns the exports, manifest derivation, imported clock, settings,
+HTTP and stdio. This repository no longer mirrors WIT. `trace` and `broker providers` keep a
+24-hour maximum row-read interval; stats, usage and denials use a fixed 300-second window. Session
+IDs are validated, deduplicated and capped at 50 even in hostile oversized responses. The SQL
+returns at most 50 groups (20 by default), never groups by trace or actor, and the turns aggregate
+is one row. The five-minute slice limits time, not worst-case memory or ingestion volume.
+
+The following 2026-09-12 record is historical and describes the original SDK 0.18 component; use
+the current README and decoded component WIT for the shipped interface.
 
 ## 2026-09-12 — implementation
 
