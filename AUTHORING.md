@@ -49,8 +49,11 @@ IDs are validated, deduplicated and capped at 50 even in hostile oversized respo
 returns at most 50 groups (20 by default), never groups by trace or actor, and the turns aggregate
 is one row. The five-minute slice limits time, not worst-case memory or ingestion volume.
 
-The following 2026-09-12 record is historical and describes the original SDK 0.18 component; use
-the current README and decoded component WIT for the shipped interface.
+The following 2026-09-12 record is historical and describes the original SDK 0.18 component,
+including its 200-session limit, raw SQL examples, plaintext transport, old WIT imports and
+validation script. None describes the shipped interface. Use the current README, decoded component
+WIT and [RELEASE.md](RELEASE.md) for the v0.5.0 stdio imports, HTTPS port 5080, three release
+assets and OCI manifest-digest proof.
 
 ## 2026-09-12 — implementation
 

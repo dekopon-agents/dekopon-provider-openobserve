@@ -78,4 +78,7 @@ with HTTP, wall clock and settings imports. Inspect `wasm-tools component wit` f
 SDK-declared versions; no repository-owned WIT mirror or WASI import is used. Build with the shared
 workflow, validate the component, and run component conformance with
 `DEKOPON_PROVIDER_COMPONENT="$PWD/openobserve-provider.wasm" cargo test --locked --workspace`.
-Publish and digest-pin artifacts in the provider set, not from a floating tag.
+The release workflow publishes the Wasm, its SHA256 sidecar and a CycloneDX SBOM, and marks
+non-prerelease releases latest. See [RELEASE.md](RELEASE.md) for checksum, attestation and OCI
+single-layer verification. Pin the OCI **manifest** digest in the provider set, not a floating tag
+or the Wasm layer digest.
