@@ -19,18 +19,15 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/dekopon-agents/dekopon-provider-openobserve"
 
 [workspace.dependencies]
+clap = { version = "=4.6.6", features = ["derive"] }
 # Exact crates.io pins, never a branch: a `branch =` dependency resolves by fetching the ref, so
-# deleting the branch upstream breaks every cold build, which is exactly how the first out-of-tree
-# provider rotted. 0.13.0 is the first published SDK carrying `dekopon:provider@0.3.0`, whose
-# `provider-cli` world exports `run-command` — the facade that renders `--help` and usage errors in
-# the guest.
+# deleting the branch upstream breaks every cold build. SDK 0.34.0 owns the typed
+# provider@0.4.0 export, stdio streams, HTTP, clock and settings imports.
 # The wall clock is a host import, not a guest guess: every word resolves an absolute
 # `start_time`/`end_time` in microseconds, and a component has no clock of its own. It is
 # readable during `invoke` only — `describe` and `run-command` are pure by contract and the
 # broker host traps a component that reads it from either.
-dekopon-provider-clock = "=0.18.0"
-dekopon-provider-http = "=0.18.0"
-dekopon-provider-sdk = { version = "=0.18.0", features = ["clap"] }
+dekopon-provider-sdk = "=0.34.0"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 

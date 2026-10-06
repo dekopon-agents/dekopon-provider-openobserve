@@ -12,7 +12,7 @@
 
 use dekopon_otel_query_core::query::{QueryError, Scope, Signal};
 use dekopon_otel_query_core::window::Window;
-use dekopon_provider_http::{Header, Request, Response, method};
+use dekopon_provider_sdk::provider::{Header, Request, Response, method};
 use serde_json::Value;
 
 /// Builds one `_search` request.
@@ -93,7 +93,7 @@ fn describe_failure(response: &Response) -> String {
 mod tests {
     use dekopon_otel_query_core::query::{Scope, Signal};
     use dekopon_otel_query_core::window::Window;
-    use dekopon_provider_http::Response;
+    use dekopon_provider_sdk::provider::Response;
     use serde_json::Value;
 
     use super::{hits, search};
@@ -103,7 +103,7 @@ mod tests {
             url: "http://rpi.lan/openobserve".to_owned(),
             org: "default".to_owned(),
             stream: "dekopon".to_owned(),
-            since_seconds: 86_400,
+            since_seconds: Some(86_400),
             max_output_bytes: 65_536,
             format: dekopon_otel_query_core::query::Format::Json,
         }

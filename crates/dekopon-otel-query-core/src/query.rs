@@ -16,7 +16,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::fit::{DEFAULT_MAX_OUTPUT_BYTES, MAX_OUTPUT_BYTES_CEILING, MIN_OUTPUT_BYTES};
-use crate::window::{MAX_WINDOW_SECONDS, Window, parse_since};
+use crate::window::{AGGREGATE_WINDOW_SECONDS, MAX_WINDOW_SECONDS, Window, parse_since};
 
 /// The largest number of rows any word will ask a store for.
 pub const MAX_LIMIT: u32 = 500;
@@ -28,10 +28,14 @@ pub const DEFAULT_ORG: &str = "default";
 pub const DEFAULT_STREAM: &str = "dekopon";
 /// How many sessions one `agent stats` folds over.
 ///
-/// The second query scopes by `trace_id IN (…)`, so this is also the request-body budget: 200 ids
-/// is about 7 KiB of SQL, inside the 16 KiB `maxRequestBytes` #250's constraint sets write. More
+/// The second query scopes by `trace_id IN (…)`; at most 50 unique validated ids are accepted
+/// even if a hostile upstream returns more hits than requested. More
 /// sessions than this in the window sets `truncated`.
-pub const MAX_SESSIONS: u32 = 200;
+pub const MAX_SESSIONS: u32 = 50;
+/// Maximum aggregate groups returned.
+pub const MAX_GROUPS: u32 = 50;
+/// Default aggregate groups returned.
+pub const DEFAULT_GROUPS: u32 = 20;
 
 /// A telemetry signal, which selects the store's `type=` and the shape of a row.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -85,8 +89,6 @@ pub enum UsageGrouping {
     Provider,
     /// One row per capability id.
     Capability,
-    /// One row per acting agent.
-    Agent,
 }
 
 impl UsageGrouping {
@@ -96,7 +98,6 @@ impl UsageGrouping {
         match self {
             Self::Provider => "provider",
             Self::Capability => "capability_id",
-            Self::Agent => "actor_id",
         }
     }
 }
@@ -117,8 +118,9 @@ pub struct Scope {
     /// The stream both dekopon daemons export into.
     #[serde(default = "default_stream")]
     pub stream: String,
-    /// The window, in seconds, already capped at 30 days.
-    pub since_seconds: u64,
+    /// The requested window for row reads; absent for fixed-window aggregates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since_seconds: Option<u64>,
     /// The ceiling the result is fitted under.
     #[serde(default = "default_max_output_bytes")]
     pub max_output_bytes: usize,
@@ -170,11 +172,6 @@ impl Scope {
                 )));
             }
         }
-        if !(1..=MAX_WINDOW_SECONDS).contains(&self.since_seconds) {
-            return Err(QueryError::invalid(
-                "sinceSeconds must be between 1 second and 30 days",
-            ));
-        }
         if !(MIN_OUTPUT_BYTES..=MAX_OUTPUT_BYTES_CEILING).contains(&self.max_output_bytes) {
             return Err(QueryError::invalid(format!(
                 "--max-output-bytes {} is outside {MIN_OUTPUT_BYTES}..={MAX_OUTPUT_BYTES_CEILING}",
@@ -187,10 +184,13 @@ impl Scope {
     /// Resolves the window against a clock reading in microseconds.
     #[must_use]
     pub fn window(&self, now_us: u64) -> Window {
-        Window::ending_at(now_us, self.since_seconds)
+        Window::ending_at(
+            now_us,
+            self.since_seconds.unwrap_or(AGGREGATE_WINDOW_SECONDS),
+        )
     }
 
-    /// Builds a scope from the parts a command word parsed, applying the 30-day cap.
+    /// Builds a row-read scope from parsed flags, applying the 24-hour cap.
     pub fn from_flags(
         url: String,
         org: String,
@@ -204,7 +204,7 @@ impl Scope {
             url,
             org,
             stream,
-            since_seconds,
+            since_seconds: Some(since_seconds),
             max_output_bytes,
             format,
         };
@@ -213,7 +213,7 @@ impl Scope {
     }
 }
 
-/// One statement against the store, as `openobserve sql` and `openobserve search` both produce it.
+/// An internal backend-neutral statement used by core tests; not exposed by any capability.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SearchQuery {
@@ -271,8 +271,8 @@ pub struct BrokerQuery {
     /// How `usage` groups. Ignored by the other two views.
     #[serde(default)]
     pub by: UsageGrouping,
-    /// The row ceiling, at most 500.
-    #[serde(default = "default_limit")]
+    /// The group ceiling (ignored for provider row reads).
+    #[serde(default = "default_group_limit")]
     pub limit: u32,
 }
 
@@ -290,6 +290,10 @@ pub enum BrokerView {
 
 fn default_limit() -> u32 {
     DEFAULT_LIMIT
+}
+
+fn default_group_limit() -> u32 {
+    DEFAULT_GROUPS
 }
 
 /// The typed form of one authorized invocation.
@@ -322,21 +326,34 @@ impl Query {
         match self {
             Self::Search(query) => {
                 query.scope.validate()?;
+                check_row_window(&query.scope)?;
                 check_limit(query.limit)?;
                 query.sql = check_statement(&query.sql)?;
             }
             Self::Trace(query) => {
                 query.scope.validate()?;
+                check_row_window(&query.scope)?;
                 check_limit(query.limit)?;
                 check_trace_id(&query.trace_id)?;
             }
             Self::AgentStats(query) => {
                 query.scope.validate()?;
+                check_fixed_window(&query.scope)?;
                 check_agent(&query.agent)?;
             }
             Self::Broker(query) => {
                 query.scope.validate()?;
-                check_limit(query.limit)?;
+                match query.view {
+                    BrokerView::Providers => check_row_window(&query.scope)?,
+                    BrokerView::Usage | BrokerView::Denials => {
+                        check_fixed_window(&query.scope)?;
+                        check_group_limit(query.limit)?;
+                        if query.view == BrokerView::Denials && query.by != UsageGrouping::Provider
+                        {
+                            return Err(QueryError::invalid("denials cannot select a grouping"));
+                        }
+                    }
+                }
             }
         }
         Ok(())
@@ -391,6 +408,33 @@ impl fmt::Display for QueryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}: {}", self.code, self.message)
     }
+}
+
+fn check_row_window(scope: &Scope) -> Result<(), QueryError> {
+    if !matches!(scope.since_seconds, Some(1..=MAX_WINDOW_SECONDS)) {
+        return Err(QueryError::invalid(
+            "sinceSeconds must be between 1 and 86400 seconds",
+        ));
+    }
+    Ok(())
+}
+
+fn check_fixed_window(scope: &Scope) -> Result<(), QueryError> {
+    if scope.since_seconds.is_some() {
+        return Err(QueryError::invalid(
+            "sinceSeconds is not accepted on aggregates",
+        ));
+    }
+    Ok(())
+}
+
+fn check_group_limit(limit: u32) -> Result<(), QueryError> {
+    if !(1..=MAX_GROUPS).contains(&limit) {
+        return Err(QueryError::invalid(
+            "aggregate limit must be between 1 and 50",
+        ));
+    }
+    Ok(())
 }
 
 fn check_limit(limit: u32) -> Result<(), QueryError> {
@@ -483,7 +527,7 @@ mod tests {
             url: "http://rpi.lan/openobserve".to_owned(),
             org: "default".to_owned(),
             stream: "dekopon".to_owned(),
-            since_seconds: 86_400,
+            since_seconds: Some(86_400),
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
             format: Format::default(),
         }
@@ -631,17 +675,17 @@ mod tests {
         let query = BrokerQuery {
             scope: scope(),
             view: BrokerView::Usage,
-            by: UsageGrouping::Agent,
+            by: UsageGrouping::Capability,
             limit: 50,
         };
         let json = serde_json::to_value(&query).expect("serializes");
         assert_eq!(json["view"], "usage");
-        assert_eq!(json["by"], "agent");
+        assert_eq!(json["by"], "capability");
         assert_eq!(
             serde_json::from_value::<BrokerQuery>(json).expect("round trips"),
             query
         );
-        assert_eq!(UsageGrouping::Agent.column(), "actor_id");
+        assert_eq!(UsageGrouping::Capability.column(), "capability_id");
         assert_eq!(UsageGrouping::default().column(), "provider");
     }
 
