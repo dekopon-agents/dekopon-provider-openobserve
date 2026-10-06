@@ -1,0 +1,1 @@
+{"hits":[{"audit_event":"broker.execution","provider":"openobserve","outcome":"Succeeded","duration_ms":141},{"audit_event":"broker.execution","provider":"openobserve","outcome":"Failed","duration_ms":90}],"total":2}

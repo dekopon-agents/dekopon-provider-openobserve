@@ -469,7 +469,7 @@ mod tests {
             (
                 vec!["providers", "--since", "24h"],
                 "openobserve.broker-providers",
-                1,
+                2,
                 86400,
             ),
             (
@@ -557,37 +557,101 @@ mod tests {
         }
     }
     #[test]
-    fn boot_before_inside_and_after_window_end_never_widens_the_second_request() {
-        let empty = r#"{"hits":[],"total":0}"#;
-        for (boot, expected_start, count) in [
-            (NOW - 90_000_000_000, Some(NOW - 86_400_000_000), 2),
-            (NOW - 3_000_000, Some(NOW - 3_000_000), 2),
-            (NOW + 1, None, 1),
+    fn provider_bodies_bound_loads_to_the_latest_boot_and_at_most_one_day() {
+        // Real log keys: the load precedes broker_started by 0.4 s. The preceding
+        // boot's load must not leak into this startup's providers.
+        let boot = NOW - 2_000_000;
+        let previous = boot - 120_000_000;
+        let loads = [
+            json!({"_timestamp":previous-400_000,"level":"INFO","message":"loaded broker provider","provider":"old","path":"old.wasm","artifact_bytes":12,"artifact_sha256":"001122334455","compile_ms":10,"capabilities":1,"command_words":1,"command_export":"run-command","target":"dekopon_broker_host","trace_id":"a","span_id":"b"}),
+            json!({"_timestamp":boot-400_000,"level":"INFO","message":"loaded broker provider","provider":"openobserve","path":"openobserve.wasm","artifact_bytes":12,"artifact_sha256":"aabbccddeeff","compile_ms":10,"capabilities":4,"command_words":3,"command_export":"run-command","target":"dekopon_broker_host","trace_id":"c","span_id":"d"}),
+        ];
+        let boot_sql = "SELECT _timestamp FROM \"dekopon\" WHERE event = 'broker_started' ORDER BY _timestamp DESC LIMIT 2";
+        let load_sql = "SELECT provider, artifact_sha256, capabilities, command_words, command_export, compile_ms FROM \"dekopon\" WHERE provider IS NOT NULL AND artifact_sha256 IS NOT NULL ORDER BY _timestamp ASC LIMIT 200";
+        for (latest, older, expected_start, returned) in [
+            (boot, Some(previous), previous + 1, 1),
+            (boot, None, boot - 300_000_000, 2),
+            (NOW - 90_000_000_000, None, NOW - 86_400_000_000, 2),
+            (NOW + 1, None, 0, 0),
         ] {
-            let boot_row = format!(r#"{{"hits":[{{"_timestamp":{boot}}}],"total":1}}"#);
+            let boots = if let Some(older) = older {
+                json!({"hits":[{"_timestamp":latest,"level":"INFO","event":"broker_started","target":"dekopon_brokerd"},{"_timestamp":older,"event":"broker_started"}],"total":2})
+            } else {
+                json!({"hits":[{"_timestamp":latest,"event":"broker_started"}],"total":1})
+            };
             let mut bodies = vec![];
-            let mut index = 0;
             let result = invoke_with(
                 "broker-providers",
                 json!({"view":"providers", "sinceSeconds":86400}),
                 &settings(),
                 NOW,
                 |request| {
-                    bodies.push(serde_json::from_slice::<Value>(&request.body).unwrap());
-                    let body = if index == 0 { boot_row.as_str() } else { empty };
-                    index += 1;
-                    Ok(response(body))
+                    let body: Value = serde_json::from_slice(&request.body).unwrap();
+                    let answer = if bodies.is_empty() {
+                        boots.clone()
+                    } else {
+                        let start = body["query"]["start_time"].as_u64().unwrap();
+                        let end = body["query"]["end_time"].as_u64().unwrap();
+                        let hits: Vec<_> = loads
+                            .iter()
+                            .filter(|row| {
+                                let timestamp = row["_timestamp"].as_u64().unwrap();
+                                timestamp >= start && timestamp <= end
+                            })
+                            .cloned()
+                            .collect();
+                        json!({"total":hits.len(),"hits":hits})
+                    };
+                    bodies.push(body);
+                    Ok(response(&answer.to_string()))
                 },
+            )
+            .expect("providers");
+            assert_eq!(
+                bodies[0]["query"],
+                json!({"sql":boot_sql,"start_time":NOW-86_400_000_000,"end_time":NOW,"from":0,"size":2})
             );
-            result.expect("providers");
-            assert_eq!(bodies.len(), count);
-            assert_eq!(bodies[0]["query"]["size"], 1);
-            if let Some(start) = expected_start {
-                assert_eq!(bodies[1]["query"]["start_time"], start);
-                assert_eq!(bodies[1]["query"]["end_time"], NOW);
-                assert_eq!(bodies[1]["query"]["size"], 200);
+            if latest > NOW {
+                assert_eq!(bodies.len(), 1);
+            } else {
+                assert_eq!(bodies.len(), 2);
+                assert_eq!(
+                    bodies[1]["query"],
+                    json!({"sql":load_sql,"start_time":expected_start,"end_time":NOW,"from":0,"size":200})
+                );
+                assert!(NOW - expected_start <= 86_400_000_000);
+                assert_eq!(result["providers"].as_array().unwrap().len(), returned);
+                if older.is_some() {
+                    assert_eq!(result["providers"][0]["provider"], "openobserve");
+                }
             }
         }
+    }
+
+    #[test]
+    fn usage_success_predicate_matches_broker_debug_outcome() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/broker-executions.json")).unwrap();
+        let sql = super::backend::usage_sql("dekopon", "provider", 20);
+        assert!(
+            sql.contains("sum(CASE WHEN outcome = 'Succeeded' THEN 1 ELSE 0 END) AS succeeded")
+        );
+        let rows = fixture["hits"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        let succeeded = rows
+            .iter()
+            .filter(|row| row["outcome"] == "Succeeded")
+            .count();
+        assert_eq!(succeeded, 1);
+        // The SQL aggregate is returned by the store and passed through the usage fold.
+        let aggregate = json!({"hits":[{"bucket":"openobserve","calls":rows.len(),"succeeded":succeeded}],"total":1});
+        let (result, bodies) = capture(
+            "broker-usage",
+            json!({"view":"usage"}),
+            &[&aggregate.to_string()],
+        );
+        assert_eq!(bodies[0]["query"]["sql"], sql);
+        assert_eq!(result.unwrap()["rows"][0]["succeeded"], 1);
     }
 
     #[test]
