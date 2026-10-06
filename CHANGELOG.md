@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-06
+
+### Fixed
+
+- Include the latest boot’s provider loads with a bounded lead window excluding the previous boot.
+- Count broker execution outcome Succeeded in usage totals.
+
 ## [0.5.0] - 2026-10-06
 
 ### Changed
