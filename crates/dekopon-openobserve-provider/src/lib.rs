@@ -188,7 +188,13 @@ fn emit(value: Value, out: &mut Stdout) -> Result<(), ProviderError> {
         })?,
     };
     out.write_all(&bytes)
-        .and_then(|()| out.write_all(b"\n"))
+        .and_then(|()| {
+            if bytes.ends_with(b"\n") {
+                Ok(())
+            } else {
+                out.write_all(b"\n")
+            }
+        })
         .map_err(|_| ProviderError {
             code: "output-closed",
             message: "stdout's reader has gone".into(),
@@ -313,6 +319,84 @@ mod tests {
         }
     }
     const NOW: u64 = 1_789_084_800_000_000;
+
+    #[test]
+    fn native_stdio_emits_one_terminal_newline_for_json_and_table() {
+        use dekopon_provider_sdk::provider::{
+            NativeStdio, Port, StreamedRequest, StreamedResponse, invoke_native, with_port,
+        };
+        use std::cell::RefCell;
+        use std::io::{self, Write};
+        use std::rc::Rc;
+
+        struct FixturePort;
+        impl Port for FixturePort {
+            fn now_unix_millis(&mut self) -> u64 {
+                NOW / 1_000
+            }
+            fn now_nanos(&mut self) -> u64 {
+                unreachable!("no monotonic clock")
+            }
+            fn fill_random(&mut self, _: &mut [u8]) {
+                unreachable!("no entropy")
+            }
+            fn settings(&mut self) -> Option<String> {
+                Some(
+                    r#"{"url":"https://rpi.lan/openobserve","org":"default","stream":"dekopon"}"#
+                        .to_owned(),
+                )
+            }
+            fn send(&mut self, _: Request) -> Result<Response, HttpError> {
+                Ok(Response {
+                    status: 200,
+                    headers: vec![],
+                    body: br#"{"hits":[],"total":0}"#.to_vec(),
+                })
+            }
+            fn stream(&mut self, _: StreamedRequest<'_>) -> Result<StreamedResponse, HttpError> {
+                unreachable!("buffered HTTP only")
+            }
+        }
+        struct Buffer(Rc<RefCell<Vec<u8>>>);
+        impl Write for Buffer {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.borrow_mut().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        for format in ["json", "table"] {
+            let captured = Rc::new(RefCell::new(Vec::new()));
+            let input = json!({"traceId":"0af7651916cd43dd8448eb211c80319c", "sinceSeconds":300, "format":format});
+            let exit = with_port(FixturePort, || {
+                invoke_native::<OpenObserveProvider>(
+                    "openobserve.trace",
+                    &input.to_string(),
+                    NativeStdio {
+                        stdin: None,
+                        stdout: Box::new(Buffer(Rc::clone(&captured))),
+                    },
+                )
+            });
+            assert_eq!(exit.status, 0, "{}", exit.stderr);
+            assert!(exit.stderr.is_empty());
+            let bytes = captured.borrow();
+            assert!(bytes.ends_with(b"\n"), "{format}");
+            assert!(!bytes.ends_with(b"\n\n"), "{format}: {bytes:?}");
+            let (value, _) = capture("trace", input, &[r#"{"hits":[],"total":0}"#]);
+            let expected = match value.expect("answer") {
+                Value::String(text) => text.into_bytes(),
+                value => serde_json::to_vec(&value).unwrap(),
+            };
+            let mut expected = expected;
+            if !expected.ends_with(b"\n") {
+                expected.push(b'\n');
+            }
+            assert_eq!(*bytes, expected, "{format} exact emitted bytes");
+        }
+    }
     fn response(body: &str) -> Response {
         Response {
             status: 200,
@@ -335,6 +419,31 @@ mod tests {
         });
         (result, bodies)
     }
+    #[test]
+    fn help_uses_the_command_word_the_broker_routed() {
+        use dekopon_provider_sdk::{CommandRunOutcome, provider};
+        for (action, expected) in [
+            ("trace", "Usage: openobserve trace"),
+            ("stats", "Usage: agent stats"),
+            ("providers", "Usage: broker providers"),
+            ("usage", "Usage: broker usage"),
+            ("denials", "Usage: broker denials"),
+        ] {
+            let argv = vec![action.to_owned(), "--help".to_owned()];
+            let CommandRunOutcome::Rendered {
+                stdout,
+                stderr,
+                status,
+            } = provider::command::<OpenObserveProvider>(&argv, false)
+            else {
+                panic!("help must render for {action}");
+            };
+            assert_eq!(status, 0);
+            assert!(stderr.is_empty());
+            assert!(stdout.contains(expected), "{action}: {stdout}");
+        }
+    }
+
     #[test]
     fn cli_proposals_follow_the_same_closed_body_path_as_direct_invocation() {
         use dekopon_provider_sdk::{CommandRunOutcome, provider};

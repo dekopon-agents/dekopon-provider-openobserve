@@ -41,6 +41,7 @@ pub enum Action {
         max_output_bytes: usize,
     },
     /// One agent's fixed five-minute statistics.
+    #[command(override_usage = "agent stats [OPTIONS] --agent <AGENT>")]
     Stats {
         /// Agent identifier.
         #[arg(long)]
@@ -53,6 +54,7 @@ pub enum Action {
         max_output_bytes: usize,
     },
     /// Loaded providers since the last boot (row read, at most 24h).
+    #[command(override_usage = "broker providers [OPTIONS] --since <SINCE>")]
     Providers {
         /// Look back at most 24h.
         #[arg(long)]
@@ -65,6 +67,7 @@ pub enum Action {
         max_output_bytes: usize,
     },
     /// Calls grouped by provider or capability over a fixed five-minute window.
+    #[command(override_usage = "broker usage [OPTIONS]")]
     Usage {
         /// Grouping key; per-agent grouping is not available.
         #[arg(long, default_value = "provider", value_parser = ["provider", "capability"])]
@@ -80,6 +83,7 @@ pub enum Action {
         max_output_bytes: usize,
     },
     /// Denials grouped by capability and reason over a fixed five-minute window.
+    #[command(override_usage = "broker denials [OPTIONS]")]
     Denials {
         /// At most 50 groups.
         #[arg(long, default_value_t = 20, value_parser = dekopon_provider_sdk::clap::value_parser!(u32).range(1..=50))]
