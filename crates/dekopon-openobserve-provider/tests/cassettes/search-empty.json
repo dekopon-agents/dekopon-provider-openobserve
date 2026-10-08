@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "request": {
+    "method": "POST",
+    "path": "/api/default/_search",
+    "query": "type=traces",
+    "headers": {
+      "accept": "application/json",
+      "content-type": "application/json"
+    },
+    "body": {
+      "json": {
+        "query": {
+          "sql": "SELECT trace_id, span_id, operation_name, service_name, span_kind, span_status, start_time, end_time, duration FROM \"synthetic\" WHERE trace_id = '00000000000000000000000000000001' ORDER BY start_time ASC LIMIT 100",
+          "start_time": 1789084500000000,
+          "end_time": 1789084800000000,
+          "from": 0,
+          "size": 100
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "json": {
+        "took": 2,
+        "hits": [],
+        "total": 0,
+        "from": 0,
+        "size": 100,
+        "scan_size": 0
+      }
+    }
+  }
+}

@@ -14,19 +14,16 @@ Run it:
 ```sh
 cp secret-map.yaml.example secret-map.yaml
 chmod 600 secret-map.yaml broker.yaml policies.cedar
-(cd ../.. && ./build.sh)          # produces ../../openobserve-provider.wasm
+(cd ../.. && ../provider-workflows/build.sh)          # produces ../../openobserve-provider.wasm
 dekopon-brokerd --config broker.yaml
 ```
 
 Then, from a shell session the broker grants:
 
 ```sh
-agent stats --url http://rpi.lan:5080/openobserve --agent reviewer --since 24h --format table
-broker usage --url http://rpi.lan:5080/openobserve --since 24h --by capability
-openobserve trace --url http://rpi.lan:5080/openobserve --since 1h 0af7651916cd43dd8448eb211c80319c
-openobserve sql --url http://rpi.lan:5080/openobserve --since 1h --limit 5 \
-  "SELECT operation_name, duration FROM \"dekopon\" WHERE service_name = 'dekopon-gatewayd' ORDER BY _timestamp DESC LIMIT 5" \
-  | jq '.rows[] | .operation_name'
+agent stats --agent reviewer --format table
+broker usage --by capability
+openobserve trace --since 1h 0af7651916cd43dd8448eb211c80319c
 ```
 
 `http://` works here only because `broker.yaml` names `rpi.lan` in `http.plaintextHosts` (dekopon

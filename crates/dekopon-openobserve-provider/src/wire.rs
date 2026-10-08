@@ -47,6 +47,10 @@ pub(crate) fn search(
             Header::text("content-type", "application/json")
                 .map_err(|error| QueryError::invalid(error.to_string()))?,
         )
+        .with_header(
+            Header::text("accept", "application/json")
+                .map_err(|error| QueryError::invalid(error.to_string()))?,
+        )
         .with_body(body);
     Ok(request)
 }
@@ -143,7 +147,7 @@ mod tests {
             .iter()
             .map(|header| header.name.to_ascii_lowercase())
             .collect();
-        assert_eq!(names, ["content-type"]);
+        assert_eq!(names, ["content-type", "accept"]);
         assert!(request.uri.ends_with("type=logs"));
     }
 
