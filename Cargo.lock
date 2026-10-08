@@ -623,7 +623,7 @@ dependencies = [
 
 [[package]]
 name = "dekopon-openobserve-provider"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "dekopon-otel-query-core",
  "dekopon-provider-sdk",
@@ -634,7 +634,7 @@ dependencies = [
 
 [[package]]
 name = "dekopon-otel-query-core"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "clap",
  "dekopon-provider-sdk",

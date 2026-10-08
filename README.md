@@ -71,17 +71,17 @@ this is a telemetry-summary capability, not a general SQL executor.
 ## Build and validation
 
 ```sh
-cargo test --workspace
-cargo fmt --all -- --check
+cargo fmt --all --check
 ../provider-workflows/build.sh
 wasm-tools component wit openobserve-provider.wasm
+DEKOPON_PROVIDER_COMPONENT="$PWD/openobserve-provider.wasm" cargo test --locked --workspace
 ```
 
-The generated component uses the SDK 0.34.0 typed `provider@0.4.0` export and stdio streams,
+The generated component uses the SDK 0.38.0 typed `provider@0.4.0` export and stdio streams,
 with HTTP, wall clock and settings imports. Inspect `wasm-tools component wit` for their actual
-SDK-declared versions; no repository-owned WIT mirror or WASI import is used. Build with the shared
-workflow, validate the component, and run component conformance with
-`DEKOPON_PROVIDER_COMPONENT="$PWD/openobserve-provider.wasm" cargo test --locked --workspace`.
+SDK-declared versions; no repository-owned WIT mirror or WASI import is used. The shared build
+script must run before tests: component conformance and cassette replay require
+`DEKOPON_PROVIDER_COMPONENT` to name the freshly built component.
 The release workflow publishes the Wasm, its SHA256 sidecar and a CycloneDX SBOM, and marks
 non-prerelease releases latest. See [RELEASE.md](RELEASE.md) for checksum, attestation and OCI
 single-layer verification. Pin the OCI **manifest** digest in the provider set, not a floating tag
