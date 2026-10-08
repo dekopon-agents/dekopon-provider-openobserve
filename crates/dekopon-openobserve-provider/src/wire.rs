@@ -147,7 +147,7 @@ mod tests {
             .iter()
             .map(|header| header.name.to_ascii_lowercase())
             .collect();
-        assert_eq!(names, ["content-type"]);
+        assert_eq!(names, ["content-type", "accept"]);
         assert!(request.uri.ends_with("type=logs"));
     }
 

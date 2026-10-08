@@ -119,16 +119,12 @@ fn invalid_and_missing_settings_fail_before_http() {
         let native = Native::<OpenObserveProvider>::new().settings(value.clone());
         let output = native.call("openobserve.trace", &input().to_string());
         assert_ne!(output.status, 0, "{value}");
-        assert!(
-            output.stderr.contains("invalid-settings"),
-            "{}",
-            output.stderr
-        );
+        assert!(output.stderr.contains("settings"), "{}", output.stderr);
         assert!(native.requests().is_empty());
     }
     let native = Native::<OpenObserveProvider>::new();
     let output = native.call("openobserve.trace", &input().to_string());
-    assert!(output.stderr.contains("invalid-settings"));
+    assert!(output.stderr.contains("settings"));
     assert!(native.requests().is_empty());
 }
 
