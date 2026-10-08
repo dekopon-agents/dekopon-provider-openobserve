@@ -6,6 +6,7 @@ use dekopon_otel_query_core::grammar::Commands;
 use dekopon_otel_query_core::query::{
     AgentStatsQuery, BrokerQuery, BrokerView, Query, QueryError, TraceQuery,
 };
+use dekopon_provider_sdk::provider::endpoint::Base;
 use dekopon_provider_sdk::provider::{
     Capability, Clock, Code, Failure, Http, HttpError, Proposal, Provider, Request, Response,
     Settings, Stdout, Usage,
@@ -31,10 +32,10 @@ pub struct BrokerProviders;
 pub struct BrokerUsage;
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 /// Owner-only connection parameters, loaded after authorization.
 pub struct OwnerSettings {
-    url: String,
+    base_url: Base,
     org: String,
     stream: String,
 }
@@ -220,7 +221,7 @@ where
     {
         return Err(QueryError::invalid("store destination fields are owner-configured").into());
     }
-    input.insert("url".into(), json!(settings.url));
+    input.insert("url".into(), json!(settings.base_url.as_str()));
     input.insert("org".into(), json!(settings.org));
     input.insert("stream".into(), json!(settings.stream));
     let value = Value::Object(input);
@@ -313,7 +314,7 @@ mod tests {
     use super::*;
     fn settings() -> OwnerSettings {
         OwnerSettings {
-            url: "https://rpi.lan/openobserve".into(),
+            base_url: Base::parse("https://rpi.lan/openobserve").unwrap(),
             org: "default".into(),
             stream: "dekopon".into(),
         }
@@ -342,7 +343,7 @@ mod tests {
             }
             fn settings(&mut self) -> Option<String> {
                 Some(
-                    r#"{"url":"https://rpi.lan/openobserve","org":"default","stream":"dekopon"}"#
+                    r#"{"baseUrl":"https://rpi.lan/openobserve","org":"default","stream":"dekopon"}"#
                         .to_owned(),
                 )
             }

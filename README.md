@@ -14,10 +14,14 @@ available only during authorized `invoke`, never in `describe` or `run-command`:
 ```yaml
 providerSettings:
   openobserve:
-    url: https://openobserve.openobserve.svc.cluster.local:5080/openobserve
+    baseUrl: https://openobserve.openobserve.svc.cluster.local:5080/openobserve
     org: default
     stream: dekopon
 ```
+
+`baseUrl`, `org`, and `stream` are required; there is no default base. Rename the previous
+owner `url` key to `baseUrl` when re-pinning this component. Invalid bases (including userinfo,
+query, fragment, and non-HTTP schemes) fail before HTTP. Configured path prefixes are preserved.
 
 These are nonsecret settings, not a capability grant. The owner must separately allow the exact
 HTTPS authority, `POST` to `/openobserve/api/default/_search`, an appropriate request/response

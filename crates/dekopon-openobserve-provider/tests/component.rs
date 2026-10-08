@@ -5,9 +5,8 @@ use dekopon_provider_sdk_testkit::conformance;
 
 #[test]
 fn real_component_conforms_to_typed_sdk_manifest_and_imports() {
-    let Some(component) = std::env::var_os("DEKOPON_PROVIDER_COMPONENT") else {
-        return;
-    };
+    let component = std::env::var_os("DEKOPON_PROVIDER_COMPONENT")
+        .expect("DEKOPON_PROVIDER_COMPONENT must name the freshly built component");
     conformance::<OpenObserveProvider>(component).expect("typed imports, manifest, help, no WASI");
 }
 
@@ -33,7 +32,7 @@ fn three_words_and_four_closed_low_risk_reads() {
         );
         assert_eq!(capability.risk, dekopon_provider_sdk::RiskLevel::Low);
         assert_eq!(capability.input_schema["additionalProperties"], false);
-        for forbidden in ["url", "org", "stream", "sql"] {
+        for forbidden in ["url", "baseUrl", "endpoint", "org", "stream", "sql"] {
             assert!(
                 capability.input_schema["properties"]
                     .get(forbidden)

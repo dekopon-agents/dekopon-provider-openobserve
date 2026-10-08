@@ -27,6 +27,12 @@ strict: true
 http:
   plaintextHosts: [rpi.lan]
 
+providerSettings:
+  openobserve:
+    baseUrl: http://rpi.lan:5080/openobserve
+    org: default
+    stream: dekopon
+
 providers:
   - ../../openobserve-provider.wasm
 
@@ -59,8 +65,6 @@ constraintSets:
         maxRequests: 3
         maxRequestBytes: 16384
         maxResponseBytes: 2097152
-        # Opts this capability into the plaintextHosts allowlist above. With TLS on the
-        # /openobserve IngressRoute instead, set this false and use https:// in --url.
         allowPlaintextLoopback: true
   openobserve.broker-providers:
     provider: openobserve

@@ -18,7 +18,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-dekopon-provider-sdk-testkit = "=0.34.0"
+dekopon-provider-sdk-testkit = "=0.38.0"
 
 [lints]
 workspace = true
