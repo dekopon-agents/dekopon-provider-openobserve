@@ -16,7 +16,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::fit::{DEFAULT_MAX_OUTPUT_BYTES, MAX_OUTPUT_BYTES_CEILING, MIN_OUTPUT_BYTES};
-use crate::window::{AGGREGATE_WINDOW_SECONDS, MAX_WINDOW_SECONDS, Window, parse_since};
+use crate::window::{AGGREGATE_WINDOW_SECONDS, MAX_WINDOW_SECONDS, Window};
 
 /// The largest number of rows any word will ask a store for.
 pub const MAX_LIMIT: u32 = 500;
@@ -188,28 +188,6 @@ impl Scope {
             now_us,
             self.since_seconds.unwrap_or(AGGREGATE_WINDOW_SECONDS),
         )
-    }
-
-    /// Builds a row-read scope from parsed flags, applying the 24-hour cap.
-    pub fn from_flags(
-        url: String,
-        org: String,
-        stream: String,
-        since: &str,
-        max_output_bytes: usize,
-        format: Format,
-    ) -> Result<Self, QueryError> {
-        let since_seconds = parse_since(since).map_err(QueryError::invalid)?;
-        let mut scope = Self {
-            url,
-            org,
-            stream,
-            since_seconds: Some(since_seconds),
-            max_output_bytes,
-            format,
-        };
-        scope.validate()?;
-        Ok(scope)
     }
 }
 

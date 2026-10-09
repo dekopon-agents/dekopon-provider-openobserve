@@ -45,7 +45,7 @@ identities:
 
 constraintSets:
   # Effect and risk must match the component's manifest byte for byte or the broker refuses to
-  # start. Every id here is `read-only`; only the raw search is Medium.
+  # start. Every id here is `read-only`.
   #
   # `maxRequests` is the number of `_search` calls the word makes, and it differs per word because
   # the plan does. `agent stats` is the widest at three — the agent's sessions, the model turns
@@ -101,23 +101,6 @@ constraintSets:
     constraints:
       timeoutMs: 20000
       maxOutputBytes: 131072
-      http:
-        allowedHosts: ["rpi.lan:5080"]
-        allowedMethods: [POST]
-        maxRequests: 1
-        maxRequestBytes: 16384
-        maxResponseBytes: 4194304
-        allowPlaintextLoopback: true
-  # The raw search returns whatever the statement selects, transcripts included. `maxResponseBytes`
-  # is a refusal rather than a truncation, so it is sized for 500 wide rows and the provider asks
-  # for `size <= --limit`.
-  openobserve.search:
-    provider: openobserve
-    effect: read-only
-    risk: Medium
-    constraints:
-      timeoutMs: 30000
-      maxOutputBytes: 262144
       http:
         allowedHosts: ["rpi.lan:5080"]
         allowedMethods: [POST]

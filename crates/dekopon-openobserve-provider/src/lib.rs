@@ -215,12 +215,6 @@ where
         .as_object()
         .cloned()
         .ok_or_else(|| QueryError::invalid("expected an input object"))?;
-    if ["url", "org", "stream"]
-        .iter()
-        .any(|key| input.contains_key(*key))
-    {
-        return Err(QueryError::invalid("store destination fields are owner-configured").into());
-    }
     input.insert("url".into(), json!(settings.base_url.as_str()));
     input.insert("org".into(), json!(settings.org));
     input.insert("stream".into(), json!(settings.stream));
