@@ -17,11 +17,6 @@ use crate::query::Format;
 use crate::table;
 use crate::window::Window;
 
-/// Applies the caller's `--format` to a finished answer.
-///
-/// `Json` returns the object unchanged — the shell's `jq` builtin takes the piped command's value,
-/// so it is already composable. `Table` returns the rendered table as a JSON string, which the
-/// shell emits verbatim.
 #[must_use]
 pub fn format(value: Value, format: Format, max_bytes: usize) -> Value {
     match format {

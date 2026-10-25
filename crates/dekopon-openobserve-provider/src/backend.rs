@@ -249,8 +249,7 @@ impl Backend for OpenObserve {
 /// Every column here is a non-optional field of OpenObserve's own span record, so the statement
 /// cannot fail on a column a particular deployment never ingested. `events` is deliberately absent:
 /// it is the JSON string a span's events are serialized into, and for dekopon that string carries
-/// `agent.model.prompt` and `agent.model.answer` — the whole conversation. An operator who needs it
-/// asks for it by name through `openobserve sql`, which is the Medium-risk capability.
+/// `agent.model.prompt` and `agent.model.answer` — the whole conversation.
 fn trace_sql(stream: &str, trace_id: &str, limit: u32) -> String {
     format!(
         "SELECT trace_id, span_id, operation_name, service_name, span_kind, span_status, \
