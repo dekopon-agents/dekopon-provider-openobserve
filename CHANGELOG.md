@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-25
+
+### Fixed
+
+- Agent statistics sum token usage correctly, explain store refusals and shared command aliases, and keep table output within its byte budget.
+
+## [0.6.0] - 2026-10-08
+
+### Added
+
+- Synthetic cassette replay and fail-closed settings tests for native and real component execution.
+
+### Changed
+
+- Replace required owner url with baseUrl validated by SDK 0.38.0, preserving org, stream and path prefixes.
+- Prepare v0.6.0 release metadata and document SDK 0.38.0 component build and test requirements.
+
 ## [0.5.1] - 2026-10-06
 
 ### Fixed
