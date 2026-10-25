@@ -51,6 +51,41 @@ pub fn render(value: &Value) -> String {
     object_table(value)
 }
 
+pub(crate) fn render_fitted(mut value: Value, max_bytes: usize) -> String {
+    let natural = render(&value);
+    if natural.len() <= max_bytes {
+        return natural;
+    }
+    value["truncated"] = Value::Bool(true);
+    let rendered = render(&value);
+    let mut lines: Vec<&str> = rendered.split_inclusive('\n').collect();
+    let is_rows = ["rows", "providers"]
+        .iter()
+        .any(|key| value[*key].is_array());
+    if is_rows {
+        lines.pop();
+    }
+    let marker = "-- truncated\n";
+    let available = max_bytes.saturating_sub(marker.len());
+    let mut length: usize = lines.iter().map(|line| line.len()).sum();
+    while length > available && lines.len() > 1 {
+        if let Some(last) = lines.pop() {
+            length -= last.len();
+        }
+    }
+    let mut out = lines.concat();
+    if out.len() > available {
+        let mut end = available;
+        while !out.is_char_boundary(end) {
+            end -= 1;
+        }
+        out.truncate(end);
+    }
+    out.push_str(marker);
+    out.truncate(max_bytes);
+    out
+}
+
 fn rows_table(rows: &[Value], envelope: &Value) -> String {
     let mut columns: Vec<String> = Vec::new();
     for row in rows {
@@ -210,7 +245,62 @@ pub fn empty_marker(envelope: &Map<String, Value>) -> String {
 mod tests {
     use serde_json::json;
 
-    use super::render;
+    use super::{render, render_fitted};
+
+    #[test]
+    fn every_table_shape_fits_by_dropping_whole_trailing_lines() {
+        for key in ["rows", "providers", "stats"] {
+            let value = if key == "stats" {
+                let entries: serde_json::Map<String, serde_json::Value> = (0..30)
+                    .map(|index| (format!("capability-{index:02}"), json!(123456789)))
+                    .collect();
+                json!({"agent":"reviewer", "capabilities":entries, "truncated":false})
+            } else {
+                let rows: Vec<_> = (0..20).map(|index| json!({"name":format!("provider-{index:02}"), "value":"1234567890123456789012345678901234567890"})).collect();
+                json!({key:rows,"returned":20,"total":20,"truncated":false,"omittedRows":0})
+            };
+            let natural = render(&value);
+            assert!(natural.len() > 1024, "{key}: {}", natural.len());
+            let fitted = render_fitted(value.clone(), 1024);
+            assert!(fitted.len() <= 1024, "{key}: {}", fitted.len());
+            assert!(fitted.ends_with("-- truncated\n"));
+            assert_eq!(fitted.lines().next(), natural.lines().next());
+            let mut marked = value;
+            marked["truncated"] = json!(true);
+            let marked = render(&marked);
+            let retained = fitted.strip_suffix("-- truncated\n").unwrap();
+            assert!(
+                marked.starts_with(retained),
+                "whole lines retained for {key}"
+            );
+            assert!(retained.ends_with('\n'));
+            assert!(retained.lines().count() < natural.lines().count());
+        }
+    }
+
+    #[test]
+    fn a_table_of_about_fourteen_hundred_bytes_fits_a_one_kib_budget() {
+        let rows: Vec<_> = (0..20).map(|index| json!({"operation":"prompt.model_turn", "trace":format!("{index:032x}"), "tokens":123456789})).collect();
+        let value = json!({"rows":rows,"total":20,"returned":20,"truncated":false,"omittedRows":0});
+        let natural = render(&value);
+        assert!((1300..1500).contains(&natural.len()), "{}", natural.len());
+        let fitted = render_fitted(value, 1024);
+        assert!(fitted.len() <= 1024);
+        assert!(fitted.ends_with("-- truncated\n"));
+        assert!(natural.starts_with(fitted.strip_suffix("-- truncated\n").unwrap()));
+    }
+
+    #[test]
+    fn an_oversized_header_uses_the_utf8_fallback_and_keeps_the_marker() {
+        let key = "長".repeat(500);
+        let value = json!({"rows":[{key:1}],"total":1,"truncated":false});
+        let natural = render(&value);
+        let fitted = render_fitted(value, 1024);
+        assert!(fitted.len() <= 1024);
+        let prefix = fitted.strip_suffix("-- truncated\n").unwrap();
+        assert!(natural.starts_with(prefix));
+        assert!(!prefix.contains('\n'));
+    }
 
     #[test]
     fn a_rows_envelope_becomes_a_fixed_width_table_with_a_footer() {

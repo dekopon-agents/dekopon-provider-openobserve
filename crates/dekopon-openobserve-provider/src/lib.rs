@@ -158,6 +158,17 @@ pub struct ProviderError {
     code: &'static str,
     message: String,
 }
+impl ProviderError {
+    fn for_capability(mut self, name: &str) -> Self {
+        if name == "agent-stats" {
+            self.message = format!(
+                "openobserve.agent-stats (agent stats / openobserve stats): {}",
+                self.message
+            );
+        }
+        self
+    }
+}
 impl From<QueryError> for ProviderError {
     fn from(error: QueryError) -> Self {
         Self {
@@ -211,6 +222,19 @@ fn invoke_with<F>(
 where
     F: FnMut(Request) -> Result<Response, HttpError>,
 {
+    invoke_query(name, input, settings, now_us, send).map_err(|error| error.for_capability(name))
+}
+
+fn invoke_query<F>(
+    name: &str,
+    input: Value,
+    settings: &OwnerSettings,
+    now_us: u64,
+    send: F,
+) -> Result<Value, ProviderError>
+where
+    F: FnMut(Request) -> Result<Response, HttpError>,
+{
     let mut input = input
         .as_object()
         .cloned()
@@ -240,8 +264,11 @@ where
     };
     query.validate()?;
     let format = query.scope().format;
+    let max_bytes = query.scope().max_output_bytes;
     let answer = dekopon_otel_query_core::run(&backend::OpenObserve::at(now_us), &query, send)?;
-    Ok(dekopon_otel_query_core::output::format(answer, format))
+    Ok(dekopon_otel_query_core::output::format(
+        answer, format, max_bytes,
+    ))
 }
 macro_rules! capability {
     ($ty:ty, $name:literal, $description:literal, $input:ty) => {
@@ -269,6 +296,7 @@ macro_rules! capability {
                     })?,
                     out,
                 )
+                .map_err(|error| error.for_capability($name))
             }
         }
     };
@@ -424,18 +452,29 @@ mod tests {
             ("usage", "Usage: broker usage"),
             ("denials", "Usage: broker denials"),
         ] {
-            let argv = vec![action.to_owned(), "--help".to_owned()];
-            let CommandRunOutcome::Rendered {
-                stdout,
-                stderr,
-                status,
-            } = provider::command::<OpenObserveProvider>(&argv, false)
-            else {
-                panic!("help must render for {action}");
-            };
-            assert_eq!(status, 0);
-            assert!(stderr.is_empty());
-            assert!(stdout.contains(expected), "{action}: {stdout}");
+            for help in ["-h", "--help"] {
+                let argv = vec![action.to_owned(), help.to_owned()];
+                let CommandRunOutcome::Rendered {
+                    stdout,
+                    stderr,
+                    status,
+                } = provider::command::<OpenObserveProvider>(&argv, false)
+                else {
+                    panic!("help must render for {action}");
+                };
+                assert_eq!(status, 0);
+                assert!(stderr.is_empty());
+                assert!(stdout.contains(expected), "{action}: {stdout}");
+                if action == "stats" {
+                    for spelling in [
+                        "agent stats",
+                        "openobserve stats",
+                        "openobserve.agent-stats",
+                    ] {
+                        assert!(stdout.contains(spelling), "{stdout}");
+                    }
+                }
+            }
         }
     }
 
@@ -551,6 +590,78 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn stats_refusals_are_classified_without_repeating_upstream_data() {
+        for (body, hint) in [
+            (
+                include_str!("../tests/fixtures/search-400-type-error.json"),
+                "the statement was rejected because a function does not accept the column type",
+            ),
+            (
+                include_str!("../tests/fixtures/search-400-absent-column.json"),
+                "the statement was rejected because a required column is absent from the stream",
+            ),
+            (
+                include_str!("../tests/fixtures/search-400-sql-error.json"),
+                "the statement was rejected; the store did not report a recognized failure kind",
+            ),
+        ] {
+            let mut calls = 0;
+            let mut statements = Vec::new();
+            let error = invoke_with("agent-stats", json!({"agent":"reviewer"}), &settings(), NOW, |request| {
+                statements.push(serde_json::from_slice::<Value>(&request.body).unwrap()["query"]["sql"].as_str().unwrap().to_owned());
+                calls += 1;
+                Ok(if calls == 1 {
+                    response(r#"{"hits":[{"trace_id":"00000000000000000000000000000001"}],"total":1}"#)
+                } else if calls == 2 {
+                    Response { status: 400, ..response(body) }
+                } else {
+                    response(r#"{"hits":[],"total":0}"#)
+                })
+            }).expect_err("refusal");
+            assert_eq!(error.code, "upstream-failure");
+            assert_eq!(
+                error.message,
+                format!(
+                    "openobserve.agent-stats (agent stats / openobserve stats): the store answered 400 ({hint})"
+                )
+            );
+            let upstream: Value = serde_json::from_str(body).unwrap();
+            for key in ["message", "error_detail"] {
+                if let Some(text) = upstream[key].as_str() {
+                    assert!(!error.message.contains(text));
+                }
+            }
+            for sql in statements {
+                assert!(!error.message.contains(&sql));
+            }
+            assert!(calls <= 3);
+        }
+    }
+
+    #[test]
+    fn stats_with_sessions_use_three_requests_and_null_sums_fold_to_zero() {
+        let empty = r#"{"hits":[],"total":0}"#;
+        let sessions = r#"{"hits":[{"trace_id":"00000000000000000000000000000001"}],"total":1}"#;
+        let turns = r#"{"hits":[{"turns":0,"input_tokens":null,"cached_input_tokens":null,"output_tokens":null,"reasoning_output_tokens":null,"total_tokens":null,"p50":null,"p95":null}],"total":1}"#;
+        for (first, answers, expected) in [
+            (sessions, vec![sessions, turns, empty], 3),
+            (empty, vec![empty, empty], 2),
+        ] {
+            let (answer, bodies) = capture("agent-stats", json!({"agent":"reviewer"}), &answers);
+            let answer = answer.expect("null aggregates are valid");
+            assert_eq!(bodies.len(), expected, "{first}");
+            if expected == 3 {
+                assert_eq!(bodies[1]["query"]["size"], 1);
+            }
+            assert_eq!(
+                answer["tokens"],
+                json!({"input":0,"cachedInput":0,"output":0,"reasoningOutput":0,"total":0})
+            );
+            assert_eq!(answer["turns"]["durationMs"], json!({"p50":0,"p95":0}));
+        }
+    }
+
     #[test]
     fn provider_bodies_bound_loads_to_the_latest_boot_and_at_most_one_day() {
         // Real log keys: the load precedes broker_started by 0.4 s. The preceding

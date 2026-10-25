@@ -78,14 +78,58 @@ pub(crate) fn hits(response: &Response) -> Result<(Vec<Value>, u64), QueryError>
     Ok((rows, total))
 }
 
+#[derive(Debug, PartialEq)]
+enum StatementRefusal {
+    TypeOrFunction,
+    AbsentColumn,
+    Unclassified,
+}
+
+impl StatementRefusal {
+    fn classify(bytes: &[u8]) -> Self {
+        let Ok(body) = serde_json::from_slice::<Value>(bytes) else {
+            return Self::Unclassified;
+        };
+        let code = body.get("code").and_then(Value::as_u64);
+        let message = body.get("message").and_then(Value::as_str).unwrap_or("");
+        let detail = body
+            .get("error_detail")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if code == Some(20004) && message.starts_with("unknown field ") {
+            Self::AbsentColumn
+        } else if code == Some(20008)
+            && (detail.contains("failed to match any signature")
+                || detail.contains("No function matches the given name and argument types")
+                || (detail.contains("Function '") && detail.contains("DataType:")))
+        {
+            Self::TypeOrFunction
+        } else {
+            Self::Unclassified
+        }
+    }
+
+    fn hint(&self) -> &'static str {
+        match self {
+            Self::TypeOrFunction => {
+                " (the statement was rejected because a function does not accept the column type)"
+            }
+            Self::AbsentColumn => {
+                " (the statement was rejected because a required column is absent from the stream)"
+            }
+            Self::Unclassified => {
+                " (the statement was rejected; the store did not report a recognized failure kind)"
+            }
+        }
+    }
+}
+
 /// The upstream's body can repeat configured destinations or generated SQL, so only the
 /// status and fixed provider-authored hints reach the agent.
 fn describe_failure(response: &Response) -> String {
     let hint = match response.status {
         401 | 403 => " (the injected credential was refused; check the OpenObserve user's role)",
-        400 => {
-            " (the statement was rejected; folded column names are audit_event, decision_allowed, usage_input_tokens)"
-        }
+        400 => StatementRefusal::classify(&response.body).hint(),
         404 => " (no such organization or stream at that URL)",
         429 => " (the store is rate limiting)",
         _ => "",

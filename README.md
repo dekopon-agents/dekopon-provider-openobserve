@@ -46,6 +46,8 @@ host messages; upstream error bodies are not shown to the model.
 | `openobserve.broker-providers` | `broker providers --since 1d` | 2 |
 | `openobserve.broker-usage` | `broker usage --by capability`, `broker denials` | 1 |
 
+`openobserve stats --agent <ID>` runs the same `openobserve.agent-stats` capability as `agent stats`.
+
 All four return explicitly projected fields, not conversation text, span events, policy IDs,
 credential names or paths. **There is no `openobserve.search`, `openobserve sql`, `search --where`,
 or SQL-bearing input field.** Both command parsing and direct invocation reject attempts to supply
