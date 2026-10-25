@@ -452,25 +452,27 @@ mod tests {
             ("usage", "Usage: broker usage"),
             ("denials", "Usage: broker denials"),
         ] {
-            let argv = vec![action.to_owned(), "--help".to_owned()];
-            let CommandRunOutcome::Rendered {
-                stdout,
-                stderr,
-                status,
-            } = provider::command::<OpenObserveProvider>(&argv, false)
-            else {
-                panic!("help must render for {action}");
-            };
-            assert_eq!(status, 0);
-            assert!(stderr.is_empty());
-            assert!(stdout.contains(expected), "{action}: {stdout}");
-            if action == "stats" {
-                for spelling in [
-                    "agent stats",
-                    "openobserve stats",
-                    "openobserve.agent-stats",
-                ] {
-                    assert!(stdout.contains(spelling), "{stdout}");
+            for help in ["-h", "--help"] {
+                let argv = vec![action.to_owned(), help.to_owned()];
+                let CommandRunOutcome::Rendered {
+                    stdout,
+                    stderr,
+                    status,
+                } = provider::command::<OpenObserveProvider>(&argv, false)
+                else {
+                    panic!("help must render for {action}");
+                };
+                assert_eq!(status, 0);
+                assert!(stderr.is_empty());
+                assert!(stdout.contains(expected), "{action}: {stdout}");
+                if action == "stats" {
+                    for spelling in [
+                        "agent stats",
+                        "openobserve stats",
+                        "openobserve.agent-stats",
+                    ] {
+                        assert!(stdout.contains(spelling), "{stdout}");
+                    }
                 }
             }
         }
