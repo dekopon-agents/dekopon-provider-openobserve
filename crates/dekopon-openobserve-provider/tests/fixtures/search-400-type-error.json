@@ -1,0 +1,1 @@
+{"code":20008,"message":"Search SQL execute error","error_detail":"Error during planning: Internal error: Function 'sum' failed to match any signature: received String (DataType: Utf8View). No function matches the given name and argument types 'sum(Utf8View)'"}

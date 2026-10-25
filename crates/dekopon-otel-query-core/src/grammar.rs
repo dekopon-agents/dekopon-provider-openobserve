@@ -41,7 +41,10 @@ pub enum Action {
         max_output_bytes: usize,
     },
     /// One agent's fixed five-minute statistics.
-    #[command(override_usage = "agent stats [OPTIONS] --agent <AGENT>")]
+    #[command(
+        override_usage = "agent stats [OPTIONS] --agent <AGENT>",
+        long_about = "One agent's fixed five-minute statistics. Both agent stats and openobserve stats run openobserve.agent-stats; retrying the other spelling runs the same capability."
+    )]
     Stats {
         /// Agent identifier.
         #[arg(long)]

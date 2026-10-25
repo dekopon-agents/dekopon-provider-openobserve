@@ -23,10 +23,10 @@ use crate::window::Window;
 /// so it is already composable. `Table` returns the rendered table as a JSON string, which the
 /// shell emits verbatim.
 #[must_use]
-pub fn format(value: Value, format: Format) -> Value {
+pub fn format(value: Value, format: Format, max_bytes: usize) -> Value {
     match format {
         Format::Json => value,
-        Format::Table => Value::String(table::render(&value)),
+        Format::Table => Value::String(table::render_fitted(value, max_bytes)),
     }
 }
 
@@ -176,13 +176,13 @@ mod tests {
             "truncated": true,
             "omittedRows": 1872
         });
-        let json = format(envelope.clone(), Format::Json);
+        let json = format(envelope.clone(), Format::Json, 65_536);
         assert_eq!(json["truncated"], true);
         assert_eq!(json["omittedRows"], 1872);
         // Row keys are the store's own, so a filter written against a SELECT keeps working.
         assert_eq!(json["rows"][0]["duration_ms"], 41);
 
-        let rendered = format(envelope, Format::Table);
+        let rendered = format(envelope, Format::Table, 65_536);
         let text = rendered.as_str().expect("a table is a string");
         assert!(text.contains("duration_ms"), "{text}");
         assert!(text.contains("truncated, 1872 omitted"), "{text}");

@@ -280,11 +280,11 @@ fn turns_sql(stream: &str, traces: &[String]) -> String {
     let ids: Vec<String> = traces.iter().map(|id| quote_literal(id)).collect();
     format!(
         "SELECT count(*) AS turns, \
-         sum(usage_input_tokens) AS input_tokens, \
-         sum(usage_cached_input_tokens) AS cached_input_tokens, \
-         sum(usage_output_tokens) AS output_tokens, \
-         sum(usage_reasoning_output_tokens) AS reasoning_output_tokens, \
-         sum(usage_total_tokens) AS total_tokens, \
+         sum(TRY_CAST(usage_input_tokens AS BIGINT)) AS input_tokens, \
+         sum(TRY_CAST(usage_cached_input_tokens AS BIGINT)) AS cached_input_tokens, \
+         sum(TRY_CAST(usage_output_tokens AS BIGINT)) AS output_tokens, \
+         sum(TRY_CAST(usage_reasoning_output_tokens AS BIGINT)) AS reasoning_output_tokens, \
+         sum(TRY_CAST(usage_total_tokens AS BIGINT)) AS total_tokens, \
          approx_percentile_cont(duration, 0.5) AS p50, \
          approx_percentile_cont(duration, 0.95) AS p95 \
          FROM \"{stream}\" WHERE operation_name = {} AND trace_id IN ({}) LIMIT 1",
@@ -520,6 +520,33 @@ mod tests {
             statement.contains("approx_percentile_cont(duration, 0.95)"),
             "{statement}"
         );
+    }
+
+    #[test]
+    fn every_turn_usage_sum_accepts_strings_without_changing_the_aggregate() {
+        let statement = turns_sql(
+            "dekopon",
+            &[
+                "00000000000000000000000000000001".into(),
+                "00000000000000000000000000000002".into(),
+            ],
+        );
+        for alias in [
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+            "total_tokens",
+        ] {
+            assert!(statement.contains(&format!(
+                "sum(TRY_CAST(usage_{alias} AS BIGINT)) AS {alias}"
+            )));
+        }
+        assert_eq!(statement.matches("sum(").count(), 5);
+        assert!(statement.starts_with("SELECT count(*) AS turns, "));
+        assert!(statement.contains("approx_percentile_cont(duration, 0.5) AS p50"));
+        assert!(statement.contains("approx_percentile_cont(duration, 0.95) AS p95"));
+        assert!(statement.ends_with("FROM \"dekopon\" WHERE operation_name = 'prompt.model_turn' AND trace_id IN ('00000000000000000000000000000001', '00000000000000000000000000000002') LIMIT 1"));
     }
 
     /// 50 trace ids is the fan-in ceiling; the statement fits inside 16 KiB.
