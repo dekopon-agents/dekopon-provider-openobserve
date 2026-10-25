@@ -1,33 +1,3 @@
-//! `--format table`: the same answer, rendered for a model to read instead of to pipe.
-//!
-//! Two output formats, and the default is the composable one. The shell's `jq` builtin takes the
-//! piped command's **value**, not its text
-//! (`dekopon-shell/src/builtins/jq.rs`: `run(&self, …, input: Option<Value>)`, handed straight to
-//! `evaluate`), so a capability that returns one JSON object is already pipeable with no wrapper:
-//!
-//! ```text
-//! openobserve sql --url … --since 1h 'SELECT …' | jq '.rows[] | .duration_ms'
-//! ```
-//!
-//! That is why the default is one object with a `rows` array rather than JSON Lines. JSON Lines
-//! would have to be reassembled by whoever consumed it, and the one consumer that matters here
-//! parses nothing — it receives the value.
-//!
-//! **Key spelling, which is the thing that makes a filter keep working.** Row keys are the store's
-//! own folded column names, passed through untouched: `duration_ms`, `capability_id`,
-//! `usage_input_tokens`, `operation_name`. Renaming them would break the filter a model wrote
-//! against a `SELECT` it typed itself. Envelope and statistic keys are #250's contract —
-//! `rows`, `returned`, `total`, `truncated`, `omittedRows`, `turns.durationMs.p95` — and are
-//! camelCase because that issue specifies them byte for byte as the shape every backend must
-//! produce. The two conventions meet at the envelope boundary and neither moves.
-//!
-//! The table is a string, and the shell emits a string result verbatim, so `--format table` prints
-//! as a table rather than as a quoted JSON scalar.
-//!
-//! Column order is the order the keys come out of the parsed rows, which `serde_json`'s default map
-//! makes alphabetical. Stable across runs is the property that matters: a model reading two answers
-//! to the same question should not have to re-find a column.
-
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
