@@ -26,11 +26,10 @@ broker usage --by capability
 openobserve trace --since 1h 0af7651916cd43dd8448eb211c80319c
 ```
 
-`http://` works here only because `broker.yaml` names `rpi.lan` in `http.plaintextHosts` (dekopon
-PR #252) and each constraint set sets `allowPlaintextLoopback: true`. Without that the native HTTP
-host refuses plaintext to any non-loopback destination and this provider makes zero calls. Put TLS
-on the `/openobserve` IngressRoute and the block comes out; the repository README's **Plaintext**
-section is the whole story.
+`http://` works here because the endpoint is loopback (`127.0.0.1:5080`) and each constraint set
+sets `allowPlaintextLoopback: true`. The native HTTP host refuses plaintext to any non-loopback
+destination, so for a store on another host put TLS on its `/openobserve` ingress and use an
+`https://` `baseUrl`; the repository README's **Plaintext** section is the whole story.
 
 `--format table` renders the same answer as a fixed-width text table. The default is JSON, which
 pipes into the shell's `jq` with no wrapper because that builtin takes the piped command's value.
@@ -56,6 +55,6 @@ text, no principal, no policy id, no credential name, and no path.
 The one dishonest-looking statement is the last, and the comment above it says why: 0.1.0 takes
 `--agent <id>` as a flag, Cedar decides on `context.agent`, and it cannot compare provider input
 against context. An agent holding `openobserve.agent-stats` can name any agent. That is fine in a
-single-operator homelab and wrong in a fleet with tenants; until dekopon grows the
+single-operator deployment and wrong in a fleet with tenants; until dekopon grows the
 `dekopon:meta/caller@0.1.0` import (#248), a multi-tenant deployment grants this id to the
 operator's agent alone and treats it as a fleet read.

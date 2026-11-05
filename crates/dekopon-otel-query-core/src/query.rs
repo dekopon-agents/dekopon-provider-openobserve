@@ -106,7 +106,7 @@ impl UsageGrouping {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Scope {
-    /// The store's base URL, without a trailing slash: `https://rpi.lan/openobserve`.
+    /// The store's base URL, without a trailing slash: `https://openobserve.example/openobserve`.
     ///
     /// An argument rather than a build constant, because a self-hosted store has no well-known
     /// address the way `api.github.com` does. Any host outside the owner's `allowedHosts` is a
