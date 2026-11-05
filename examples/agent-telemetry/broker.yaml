@@ -2,14 +2,14 @@
 #
 # It owns the socket, policy, constraint sets, the secret map, and the audit log. Every relative
 # path below resolves against this file's own directory, so the example runs from a checkout without
-# editing repository paths. The absolute `/home/xavier/...` paths are runtime state.
+# editing repository paths. The absolute `/home/you/...` paths are runtime state.
 #
 # Hygiene, all checked at startup and all fatal:
 #   chmod 0600 broker.yaml policies.cedar secret-map.yaml
 #   chmod 0700 ~/.local/run/dekopon
 apiVersion: dekopon.dev/brokerd/v1alpha1
 
-socketPath: /home/xavier/.local/run/dekopon/broker.sock
+socketPath: /home/you/.local/run/dekopon/broker.sock
 
 brokerPrincipal: local-broker
 policyRevision: agent-telemetry-2026-09
@@ -20,16 +20,13 @@ policiesPath: policies.cedar
 # A capability typo is a mistake, not an anticipation, so refuse startup instead of warning.
 strict: true
 
-# dekopon PR #252: the owner names the plaintext hosts, once, here. Without it the native HTTP host
-# refuses `http://` to anything but loopback and this provider makes zero calls against the homelab
-# store. Delete this block and put TLS on the /openobserve IngressRoute instead if you would rather
-# not send a Basic credential in the clear across the LAN.
-http:
-  plaintextHosts: [rpi.lan]
+# The endpoint below is loopback, which the native HTTP host allows over plaintext without any
+# `http.plaintextHosts` entry. Pointing this at a non-loopback store means TLS on its ingress; do not
+# add the host to `http.plaintextHosts` and send a Basic credential in the clear.
 
 providerSettings:
   openobserve:
-    baseUrl: http://rpi.lan:5080/openobserve
+    baseUrl: http://127.0.0.1:5080/openobserve
     org: default
     stream: dekopon
 
@@ -60,7 +57,7 @@ constraintSets:
       timeoutMs: 20000
       maxOutputBytes: 65536
       http:
-        allowedHosts: ["rpi.lan:5080"]
+        allowedHosts: ["127.0.0.1:5080"]
         allowedMethods: [POST]
         maxRequests: 3
         maxRequestBytes: 16384
@@ -74,7 +71,7 @@ constraintSets:
       timeoutMs: 20000
       maxOutputBytes: 65536
       http:
-        allowedHosts: ["rpi.lan:5080"]
+        allowedHosts: ["127.0.0.1:5080"]
         allowedMethods: [POST]
         maxRequests: 2
         maxRequestBytes: 16384
@@ -88,7 +85,7 @@ constraintSets:
       timeoutMs: 20000
       maxOutputBytes: 131072
       http:
-        allowedHosts: ["rpi.lan:5080"]
+        allowedHosts: ["127.0.0.1:5080"]
         allowedMethods: [POST]
         maxRequests: 1
         maxRequestBytes: 16384
@@ -102,7 +99,7 @@ constraintSets:
       timeoutMs: 20000
       maxOutputBytes: 131072
       http:
-        allowedHosts: ["rpi.lan:5080"]
+        allowedHosts: ["127.0.0.1:5080"]
         allowedMethods: [POST]
         maxRequests: 1
         maxRequestBytes: 16384

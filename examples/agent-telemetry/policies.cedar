@@ -41,7 +41,7 @@ when { context has agent && context.agent == "telemetry-operator" };
 // grant can type `agent stats --agent librarian` and read the librarian's numbers.
 //
 // So this statement is honest only where every agent's numbers are fair game to every other, which
-// is the case in a single-operator homelab and is not the case in a fleet with tenants. Until
+// is the case in a single-operator deployment and is not the case in a fleet with tenants. Until
 // #248's `dekopon:meta/caller@0.1.0` import exists, a deployment that needs real per-agent scoping
 // grants `openobserve.agent-stats` to the operator's agent alone and treats it as a fleet read.
 @id("reviewer-may-read-its-own-stats")

@@ -102,9 +102,9 @@ Cargo resolved, no ambient dependency, no hand-written `unsafe`, exactly two cor
 (`dekopon:http/client@1.0.0`, `dekopon:clock/wall@1.0.0`), exactly three exports, no local path in
 the artifact, and the reproducible build's digest matching its sidecar.
 
-Not run: any call against a live OpenObserve. The homelab API is `http://rpi.lan/openobserve` and
-the native HTTP host refuses plaintext to non-loopback destinations, so the first real call waits on
-TLS or on dekopon's broker-level plaintext allowlist. The fixtures are built to the documented
+Not run: any call against a live OpenObserve. The native HTTP host refuses plaintext to non-loopback
+destinations, so the first real call against a remote store waits on TLS or on dekopon's
+broker-level plaintext allowlist. The fixtures are built to the documented
 `_search` response shape and OpenObserve's own span record, not captured.
 
 ## 2026-09-12 — two output formats
@@ -130,7 +130,7 @@ shape. The truncation marker is a footer line, because "rows were dropped" must 
 rendering.
 
 **Plaintext.** dekopon PR #252 landed the broker-level allowlist while this was being built, so the
-README and the example name it — `http.plaintextHosts: [rpi.lan]` in `broker.yaml` plus
-`allowedHosts: ["rpi.lan:5080"]` and `allowPlaintextLoopback: true` on each constraint set — instead
-of describing a pending change. TLS on the IngressRoute is still the better answer and the README
+README named it — `http.plaintextHosts` in `broker.yaml` plus `allowedHosts` and
+`allowPlaintextLoopback: true` on each constraint set — instead of describing a pending change. The
+example has since moved to a loopback endpoint, which needs no `plaintextHosts` entry. TLS on the IngressRoute is still the better answer and the README
 still says so.
