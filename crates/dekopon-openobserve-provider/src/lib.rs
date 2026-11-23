@@ -336,7 +336,7 @@ mod tests {
     use super::*;
     fn settings() -> OwnerSettings {
         OwnerSettings {
-            base_url: Base::parse("https://rpi.lan/openobserve").unwrap(),
+            base_url: Base::parse("https://example.com/openobserve").unwrap(),
             org: "default".into(),
             stream: "dekopon".into(),
         }
@@ -365,7 +365,7 @@ mod tests {
             }
             fn settings(&mut self) -> Option<String> {
                 Some(
-                    r#"{"baseUrl":"https://rpi.lan/openobserve","org":"default","stream":"dekopon"}"#
+                    r#"{"baseUrl":"https://example.com/openobserve","org":"default","stream":"dekopon"}"#
                         .to_owned(),
                 )
             }

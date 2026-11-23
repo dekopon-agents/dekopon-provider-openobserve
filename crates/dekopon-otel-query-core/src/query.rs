@@ -502,7 +502,7 @@ mod tests {
 
     fn scope() -> Scope {
         Scope {
-            url: "http://rpi.lan/openobserve".to_owned(),
+            url: "http://example.com/openobserve".to_owned(),
             org: "default".to_owned(),
             stream: "dekopon".to_owned(),
             since_seconds: Some(86_400),
@@ -553,7 +553,7 @@ mod tests {
     #[test]
     fn the_optional_fields_default_to_the_documented_values() {
         let query: SearchQuery = serde_json::from_value(serde_json::json!({
-            "url": "http://rpi.lan/openobserve",
+            "url": "http://example.com/openobserve",
             "sinceSeconds": 3_600,
             "signal": "logs",
             "sql": "SELECT 1"
@@ -597,15 +597,15 @@ mod tests {
     #[test]
     fn the_url_the_org_and_the_stream_are_normalized_or_refused() {
         let mut good = scope();
-        good.url = "https://rpi.lan/openobserve/".to_owned();
+        good.url = "https://example.com/openobserve/".to_owned();
         good.validate().expect("a trailing slash is trimmed");
-        assert_eq!(good.url, "https://rpi.lan/openobserve");
+        assert_eq!(good.url, "https://example.com/openobserve");
 
         for url in [
-            "rpi.lan/openobserve",
-            "ftp://rpi.lan",
-            "http://rpi.lan/openobserve?type=traces",
-            "http://rpi.lan/open observe",
+            "example.com/openobserve",
+            "ftp://example.com",
+            "http://example.com/openobserve?type=traces",
+            "http://example.com/open observe",
         ] {
             let mut scope = scope();
             scope.url = url.to_owned();
