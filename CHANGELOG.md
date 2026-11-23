@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-23
+
+### Fixed
+
+- The agent-telemetry example uses a loopback endpoint and generic paths and text, so it no longer sends a Basic credential over plaintext to a named LAN host.
+
 ## [0.6.1] - 2026-10-25
 
 ### Fixed
