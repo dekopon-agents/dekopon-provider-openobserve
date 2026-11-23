@@ -102,7 +102,7 @@ mod tests {
     impl Backend for Endless {
         fn plan(&self, _query: &Query, _prior: &[Response]) -> Result<Option<Request>, QueryError> {
             Ok(Some(
-                Request::new("POST", "http://rpi.lan/openobserve").expect("a request"),
+                Request::new("POST", "http://example.com/openobserve").expect("a request"),
             ))
         }
 
@@ -117,7 +117,7 @@ mod tests {
         fn plan(&self, _query: &Query, prior: &[Response]) -> Result<Option<Request>, QueryError> {
             if prior.is_empty() {
                 Ok(Some(
-                    Request::new("POST", "http://rpi.lan/openobserve").expect("a request"),
+                    Request::new("POST", "http://example.com/openobserve").expect("a request"),
                 ))
             } else {
                 Ok(None)
@@ -132,7 +132,7 @@ mod tests {
     fn query() -> Query {
         Query::Search(SearchQuery {
             scope: Scope {
-                url: "http://rpi.lan/openobserve".to_owned(),
+                url: "http://example.com/openobserve".to_owned(),
                 org: "default".to_owned(),
                 stream: "dekopon".to_owned(),
                 since_seconds: Some(3_600),

@@ -148,7 +148,7 @@ mod tests {
 
     fn scope() -> Scope {
         Scope {
-            url: "http://rpi.lan/openobserve".to_owned(),
+            url: "http://example.com/openobserve".to_owned(),
             org: "default".to_owned(),
             stream: "dekopon".to_owned(),
             since_seconds: Some(86_400),
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(request.method, "POST");
         assert_eq!(
             request.uri,
-            "http://rpi.lan/openobserve/api/default/_search?type=traces"
+            "http://example.com/openobserve/api/default/_search?type=traces"
         );
         let body: Value = serde_json::from_slice(&request.body).expect("a JSON body");
         assert_eq!(body["query"]["sql"], "SELECT 1");
